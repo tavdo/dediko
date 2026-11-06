@@ -34,6 +34,8 @@ test('validation rejects malformed dates, duplicate IDs, excessive data and inva
   assert.throws(()=>validateDocument(document([reminder({date:'2026-02-30'})])));
   assert.throws(()=>validateDocument(document([reminder(),reminder()])));
   assert.throws(()=>validateDocument(document([reminder({time:'25:00'})])));
+  assert.throws(()=>validateDocument(document([null])), {status:400});
+  assert.throws(()=>validateDocument({...document([]),plannerTasks:[null]}), {status:400});
   assert.throws(()=>validateDocument({...document([]),lessons:[{url:'javascript:alert(1)'}]}));
   assert.throws(()=>validateDocument(document(Array.from({length:101},(_,i)=>reminder({id:String(i)})))));
   assert.throws(()=>timezone('Invalid/Zone'));
@@ -44,6 +46,7 @@ test('push endpoints cannot target arbitrary hosts, local addresses or spoofed s
   assert.deepEqual(validateSubscription(subscription),subscription);
   for (const endpoint of ['http://fcm.googleapis.com/test','https://localhost/test','https://fcm.googleapis.com.evil.test/x','https://fcm.googleapis.com:444/x','https://user:pass@fcm.googleapis.com/x']) assert.throws(()=>validateSubscription({...subscription,endpoint}));
   assert.throws(()=>validateSubscription({...subscription,keys:{p256dh:'x',auth:'y'}}));
+  assert.throws(()=>validateSubscription({...subscription,keys:{p256dh:12345,auth:12345}}), {status:400});
 });
 test('API boundary rejects cross-origin writes, oversized streamed JSON and administrative auth paths', async () => {
   assert.throws(()=>sameOrigin(new Request('https://dediko.vercel.app/api/account',{headers:{origin:'https://evil.test'}})));

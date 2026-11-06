@@ -8,6 +8,7 @@ import { HttpError } from './http.js';
 export const topic = 'dediko-reminders';
 export const endpointHash = endpoint => createHash('sha256').update(endpoint).digest('hex');
 export function validateSubscription(value) {
+  if (typeof value?.endpoint !== 'string' || typeof value?.keys?.p256dh !== 'string' || typeof value?.keys?.auth !== 'string') throw new HttpError(400, 'მოწყობილობის მონაცემები არასწორია.');
   let url;
   try { url = new URL(value.endpoint); } catch { throw new HttpError(400, 'არასწორი მოწყობილობა.'); }
   const allowed = ['fcm.googleapis.com', 'web.push.apple.com', 'push.services.mozilla.com', 'notify.windows.com'];

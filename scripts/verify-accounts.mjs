@@ -6,8 +6,7 @@ import { db } from '../server/db.js';
 import * as accountRoutes from '../api/account.js';
 import * as pushRoutes from '../api/push.js';
 import { proxyAuth } from '../server/auth.js';
-import { endpointHash, processReminder } from '../server/push.js';
-import { getAccount, putAccount } from '../server/accounts.js';
+import { processReminder, endpointHash } from '../server/push.js';
 import { api } from '../server/http.js';
 process.loadEnvFile('.env.local');
 const origin = process.argv[2] || 'https://dediko.vercel.app';
@@ -71,7 +70,15 @@ try {
   assert.equal((await a.first.request('push','POST',{action:'status',endpoint:subscription.endpoint})).body.subscribed,true);
   assert.equal((await b.first.request('push','POST',{action:'status',endpoint:subscription.endpoint})).body.subscribed,false);
   assert.equal((await b.first.request('push','POST',{action:'subscribe',subscription})).status,409);
+  const attempts=await Promise.all(Array.from({length:12},(_,index)=>a.first.request('push','POST',{action:'subscribe',subscription:{...subscription,endpoint:`${subscription.endpoint}-${index}`}})));
+  assert.equal(attempts.filter(r=>r.status===200).length,9);
+  assert.equal(attempts.filter(r=>r.status===409).length,3);
+  const [deviceCount]=await sql`select count(*)::integer as count from dediko.push_subscriptions where user_id=${a.id}`;
+  assert.equal(deviceCount.count,10);
+  assert.equal((await a.first.request('push','POST',{action:'subscribe',subscription})).status,200);
+  await sql`delete from dediko.push_subscriptions where user_id=${a.id} and endpoint_hash<>${endpointHash(subscription.endpoint)}`;
   console.log('PASS: authenticated device opt-in is persistent and isolated; arbitrary push URLs are rejected.');
+  console.log('PASS: concurrent device registration respects the 10-device cap and existing devices can reconnect.');
 
   const due = new Date(Date.now()-10000).toISOString(), jobKey = randomUUID();
   const reminder = {id:'worker-check',title:'Private test title',date:due.slice(0,10),time:'10:00',repeat:'daily',enabled:true,automatic:false,category:'self',completed:[]};

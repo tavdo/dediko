@@ -8,13 +8,19 @@ export const POST = api(async request => {
   sameOrigin(request);
   const { user, cookies } = await sessionFor(request);
   const body = await bodyJSON(request, 6000), sql = db();
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'არასწორი მოთხოვნა.');
   await getAccount(user.id);
   if (body.action === 'subscribe') {
     const subscription = validateSubscription(body.subscription), hash = endpointHash(subscription.endpoint);
-    const [row] = await sql`insert into dediko.push_subscriptions(endpoint_hash, user_id, subscription)
+    const [, rows] = await sql.transaction([
+      sql`select user_id from dediko.accounts where user_id = ${user.id} for update`,
+      sql`insert into dediko.push_subscriptions(endpoint_hash, user_id, subscription)
       select ${hash}, ${user.id}, ${JSON.stringify(subscription)}::jsonb
       where (select count(*) from dediko.push_subscriptions where user_id = ${user.id}) < 10
-      on conflict(endpoint_hash) do update set subscription = excluded.subscription where dediko.push_subscriptions.user_id = excluded.user_id returning endpoint_hash`;
+        or exists(select 1 from dediko.push_subscriptions where endpoint_hash = ${hash} and user_id = ${user.id})
+      on conflict(endpoint_hash) do update set subscription = excluded.subscription where dediko.push_subscriptions.user_id = excluded.user_id returning endpoint_hash`
+    ]);
+    const [row] = rows;
     if (!row) throw new HttpError(409, 'მოწყობილობა სხვა ანგარიშს ეკუთვნის ან 10 მოწყობილობის ლიმიტი ამოწურულია. გამორთე შეტყობინებები და თავიდან ჩართე.');
     await refreshSchedules(user.id);
     let scheduled = true;

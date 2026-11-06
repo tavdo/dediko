@@ -45,6 +45,7 @@ export async function proxyAuth(request) {
   let body;
   if (request.method === 'POST') {
     const input = await bodyJSON(request, 16000);
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new HttpError(400, 'არასწორი მოთხოვნა.');
     const password = path === 'reset-password' ? input.newPassword : path === 'sign-up/email' ? input.password : null;
     if (password !== null && (typeof password !== 'string' || password.length < 12 || password.length > 128)) throw new HttpError(400, 'პაროლი 12–128 სიმბოლოს უნდა შეიცავდეს.');
     body = JSON.stringify(input); headers.delete('content-length');

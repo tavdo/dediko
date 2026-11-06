@@ -28,7 +28,7 @@ function scheduleQueries(sql, userId, desired, writeId = null) {
   ];
 }
 export async function putAccount(userId, input) {
-  if (!Number.isSafeInteger(input.revision) || input.revision < 0) throw new HttpError(400, 'არასწორი ვერსია.');
+  if (!input || !Number.isSafeInteger(input.revision) || input.revision < 0) throw new HttpError(400, 'არასწორი ვერსია.');
   const document = validateDocument(input.document), zone = timezone(input.timezone);
   const sql = db(), writeId = randomUUID();
   const results = await sql.transaction([

@@ -14,6 +14,7 @@ export function validateDocument(input) {
   if (!input || input.version !== 1 || !input.profile) fail();
   const profile = { name: text(input.profile.name, 40, 1).trim(), stage: choice(input.profile.stage, ['pregnant', 'mother']), referenceDate: date(input.profile.referenceDate) };
   const reminders = list(input.reminders, 100, r => {
+    if (!r || typeof r !== 'object') fail();
     if (!/^\d{2}:\d{2}$/.test(r.time) || Number(r.time.slice(0, 2)) > 23 || Number(r.time.slice(3)) > 59) fail();
     return { id: text(r.id, 100, 1), title: text(r.title, 100, 1), date: date(r.date), time: r.time,
       repeat: choice(r.repeat, ['none', 'daily', 'weekly']), category: choice(r.category, ['self', 'baby', 'visit', 'other']),
@@ -26,7 +27,10 @@ export function validateDocument(input) {
     return { id:text(l.id,100,1), title:text(l.title,100,1), description:text(l.description || '',300), url:parseVideoUrl(l.url).url, stage,
       category:choice(l.category, lessonCategories(stage).map(c => c.id)), language:text(l.language || '',60), personal:true, source:'პირადი ბიბლიოთეკა' };
   });
-  const plannerTasks = list(input.plannerTasks || [], 500, t => ({ id: text(t.id, 100, 1), title: text(t.title, 120, 1), date: date(t.date), week: date(t.week), stage: choice(t.stage, ['pregnant', 'mother']), done: bool(t.done) }));
+  const plannerTasks = list(input.plannerTasks || [], 500, t => {
+    if (!t || typeof t !== 'object') fail();
+    return { id: text(t.id, 100, 1), title: text(t.title, 120, 1), date: date(t.date), week: date(t.week), stage: choice(t.stage, ['pregnant', 'mother']), done: bool(t.done) };
+  });
   const notes = input.plannerNotes || {};
   if (typeof notes !== 'object' || Array.isArray(notes) || Object.keys(notes).length > 100) fail();
   const plannerNotes = Object.fromEntries(Object.entries(notes).map(([key, value]) => [text(key, 60, 1), text(value, 2000)]));

@@ -9,9 +9,10 @@ const userId = `queue-check-${randomUUID()}`, jobKey = randomUUID(), sql = db();
 try {
   await sql`insert into dediko.accounts(user_id, document) values(${userId}, ${JSON.stringify({version:1,profile:{name:'Queue integration check',stage:'pregnant',referenceDate:'2027-06-01'},reminders:[]})}::jsonb)`;
   await sql`insert into dediko.schedules(user_id,reminder_id,signature,job_key,next_at) values(${userId},'queue-check','queue-check',${jobKey}::uuid,${new Date(Date.now()+5000).toISOString()}::timestamptz)`;
+  await sql`insert into dediko.schedules(user_id,reminder_id,signature,job_key,next_at,queued) values(${userId},'queue-expired-check','queue-check',${randomUUID()}::uuid,now()-interval '2 hours',true)`;
   const response=await fetch(`${origin}/api/reminder-recovery`,{headers:{authorization:`Bearer ${process.env.CRON_SECRET}`}});
   assert.equal(response.status,200,`Queue producer HTTP ${response.status}`);
-  const result=await response.json();assert.ok(result.recovered>=1,'Fixture was not published');
+  const result=await response.json();assert.ok(result.recovered>=2,'Fresh and expired fixtures were not both published');
   console.log('Published a temporary delayed reminder through the deployed recovery producer.');
   const start=Date.now();let consumed=false;
   while(Date.now()-start<50000){
@@ -20,5 +21,5 @@ try {
     await new Promise(resolve=>setTimeout(resolve,2000));
   }
   assert.ok(consumed,'The deployed Queue callback did not consume the reminder within 50 seconds.');
-  console.log('PASS: deployed Queue delayed delivery invoked the worker and completed the database job with the site closed. No push transport was exercised.');
+  console.log('PASS: deployed Queue delayed delivery and expired-job recovery invoked the worker and completed database jobs with the site closed. No push transport was exercised.');
 } finally {await sql`delete from dediko.accounts where user_id=${userId}`;console.log('Cleaned the temporary Queue fixture.');}
