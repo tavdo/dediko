@@ -4,9 +4,10 @@ Georgian-language local prototype for pregnant people and new mothers, using the
 
 ## Run
 
-Requires Node.js 20.11 or newer. No installation or dependencies required.
+Requires Node.js 20.11 or newer.
 
 ```sh
+npm install
 npm run dev
 ```
 
@@ -20,7 +21,7 @@ Import `tavdo/dediko` into Vercel and deploy the `main` branch. The checked-in `
 - Build command: `npm run build`
 - Output directory: `dist`
 - Root directory: repository root
-- Environment variables: none required
+- Storage: the Ideas API needs a connected private Vercel Blob store. Vercel injects `BLOB_READ_WRITE_TOKEN` automatically. Keep it server-side; it is never part of the static build. Local development uses `.local/ideas.json` instead.
 
 Run `npm run build` locally to generate the same static output. Only runtime files and assets are copied; local screenshots, development scripts and tests are excluded from the deployed site.
 
@@ -58,11 +59,27 @@ Before paid launch, implement authenticated accounts and server-side storage, a 
 
 ## Scope
 
-This is a local prototype, not an authenticated multi-user service. There is no backend, password login, cross-device sync, email, push, or background notification delivery. Reminders are displayed in the site. Suggested reminders concern general organization and self-care; they are not clinical schedules or medical advice. Medical appointments are entered by the user.
+Profiles, reminders and Pro remain browser-local prototypes without password login, cross-device sync, email, push, or background notification delivery. The Ideas board is a shared backend feature, described below. Reminders are displayed in the site. Suggested reminders concern general organization and self-care; they are not clinical schedules or medical advice. Medical appointments are entered by the user.
 
 The pregnancy due date and child's birth date personalize the selected stage's display. More detailed suggestions by pregnancy week or child age require approved content and are not implemented yet.
 
-Google Fonts supplies Noto Sans Georgian when online; a system sans-serif fallback works offline. All other runtime files are local.
+Google Fonts supplies Noto Sans Georgian when online; a system sans-serif fallback works offline. Video playback uses the original providers; the shared Ideas board requires the online API.
+
+## Shared ideas board
+
+Open `/?page=ideas`. Both Free/Pro users and visitors can submit an idea, choose a category, search/filter by status or category, sort by popularity/newest, and view “My ideas”. Submission requires explicit public-posting consent. Profile names, pregnancy/birth dates, private reminders and notes are not sent to this API. New ideas receive `reviewing` status and the submitting browser's first vote.
+
+`api/ideas.js` is a Node.js Web API function backed by a private Vercel Blob JSON object. ETag conditional writes and conflict retries protect concurrent changes. Votes use idempotent desired-state updates. An HTTP-only, Secure, SameSite cookie identifies a browser; public responses omit raw identifiers, voter lists and submission activity. One vote per browser is not verified one-person voting; clearing cookies or using another browser creates a separate identity. No real-account authentication is implied.
+
+Roadmap changes and team replies are controlled in `server/idea-statuses.js`. Add an idea's full ID (returned by `/api/ideas`) with `{status:'planned', reply:'...'}` and deploy. Allowed statuses: `reviewing`, `planned`, `inprogress`, `completed`. Use `{hidden:true}` to moderate an inappropriate submission. Visitors cannot change roadmap statuses through the API. An author may withdraw an idea before other browsers support it.
+
+Initial board capacity is 250 ideas, 250 browser votes per idea, and a 3 MB private object. Creation is limited to five ideas per browser in 24 hours and 120 changes per hour. These are small-community safeguards, not authenticated anti-abuse controls; move to transactional database storage and stronger identity controls as the community grows. Nothing is stored in ephemeral Function memory as the source of truth.
+
+The local dev server uses a serialized, ignored `.local/ideas.json` file and the same HTTP handler. It never falls back to that local file in production. Failed requests do not report success or silently save submissions only to the browser. Failed submission text remains in the form/session for retry.
+
+Run `node scripts/verify-ideas.mjs` with the dev server running to verify two independent HTTP sessions; pass a deployment origin as its argument to verify deployment storage. It creates a clearly marked test idea, verifies cross-session visibility and votes, then removes its own test content. `npm run check` covers API validation, origin/body limits, privacy, votes, conflicts, moderation and existing features.
+
+`@vercel/cli-config` is pinned through an override to the patched 0.3.7 release because the Blob SDK's OIDC dependency otherwise resolved a vulnerable older transitive version.
 
 ## Source
 

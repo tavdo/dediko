@@ -1,6 +1,7 @@
 import { localDate, nextOccurrence, completionKey, suggestedReminders } from './model.js';
 import { parseVideoUrl, lessonsForStage, lessonCategories, migrateLessonState } from './lessons.js';
 import { proPrice, trialStatus, startProTrial, weekStart, shiftDate, weeklyTemplate, migrateProState, remindersToCalendar } from './pro.js';
+import { ideaCategories, ideaStatuses, filterIdeas, validateIdea } from './ideas.js';
 
 const app = document.querySelector('#app');
 const dialog = document.querySelector('#form-dialog');
@@ -29,7 +30,8 @@ const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" f
 const logo = () => '<img class="brand-image" src="assets/dediko-logo.jpg" alt="DediKo — დედასა და ბავშვზე ზრუნვა" width="210" height="74">';
 const emptyData = () => ({ version: 1, profile: null, reminders: [], lessons: [], completedLessons: [], pro: null, plannerTasks: [], plannerNotes: {} });
 let data = load();
-let view = new URLSearchParams(location.search).get('page') === 'pro' ? 'pro' : data.profile ? 'dashboard' : 'landing';
+const requestedPage = new URLSearchParams(location.search).get('page');
+let view = ['pro','ideas'].includes(requestedPage) ? requestedPage : data.profile ? 'dashboard' : 'landing';
 let filter = 'today';
 let demo = false;
 let toastTimer;
@@ -39,6 +41,9 @@ let plannerWeek = weekStart();
 let pendingProTrial = false;
 let renderedDate = localDate();
 let renderedProActive = trialStatus(data.pro).active;
+let ideaBoard = {items:[],loaded:false,loading:false,error:'',busy:false};
+let ideaFilters = {category:'all',status:'all',search:'',sort:'popular',mine:false};
+let ideaDraft = null;
 
 function load() {
   try {
@@ -74,7 +79,7 @@ function stageChoices(selected) {
 }
 
 function landing() {
-  return `<header class="site-header wrap"><a class="brand" href="#" aria-label="Dediko მთავარი">${logo()}</a><nav aria-label="მთავარი ნავიგაცია"><a href="#how">როგორ მუშაობს</a><a href="#for-you">შენთვის</a><a href="#reminders">შეხსენებები</a><a href="#video-lessons">ვიდეოები</a><a href="?page=pro" data-action="pro" class="pro-nav-link">Dediko Pro ✧</a></nav><button class="button button-small" data-action="register">შექმენი შენი სივრცე ${icon('arrow')}</button></header>
+  return `<header class="site-header wrap"><a class="brand" href="#" aria-label="Dediko მთავარი">${logo()}</a><nav aria-label="მთავარი ნავიგაცია"><a href="#how">როგორ მუშაობს</a><a href="#for-you">შენთვის</a><a href="#reminders">შეხსენებები</a><a href="#video-lessons">ვიდეოები</a><a href="?page=pro" data-action="pro" class="pro-nav-link">Dediko Pro ✧</a><a href="?page=ideas" data-action="ideas">იდეები</a></nav><button class="button button-small" data-action="register">შექმენი შენი სივრცე ${icon('arrow')}</button></header>
   <main id="main"><section class="hero wrap"><div class="hero-copy"><div class="eyebrow"><span class="tiny-heart">${icon('heart')}</span> შენთან, დედობის ყოველ ნაბიჯზე</div><h1>ახალი სიცოცხლე.<br>ახალი შენ.<br><span>ერთად, უფრო მშვიდად.</span></h1><p>პატარას მოლოდინიდან პირველ ჩახუტებამდე —<br class="desktop-break"> შენი პირადი სივრცე ზრუნვისთვის, დაგეგმვისთვის<br class="desktop-break"> და ყველაფრის მშვიდად მოსასწრებად.</p><div class="hero-actions"><button class="button" data-action="register">დაიწყე შენი ამბავი ${icon('arrow')}</button><button class="text-button" data-action="demo">დაათვალიერე სივრცე <span>↗</span></button></div><div class="hero-note">${icon('check')} შენი ტემპით ${icon('check')} შენზე მორგებული ${icon('check')} სიყვარულით შექმნილი</div></div>
   <div class="hero-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><span class="art-spark spark-one">✧</span><span class="art-spark spark-two">✧</span><div class="floating-note note-top">${icon('heart')} <span>პატარა ნაბიჯები,<br><strong>დიდი სიყვარული</strong></span></div><div class="preview-card"><div class="preview-top"><span class="preview-avatar">ა</span><div><span class="mini-label">შენი ყოველდღიური თანამგზავრი</span><strong>დილა მშვიდობისა, დედიკო <span class="pink">♡</span></strong></div><span class="preview-dot"></span></div><div class="preview-greeting"><span class="tag">${icon('spark')} შენი სივრცის მაგალითი</span><h2>დღეს საკუთარ თავსაც<br>მოუსმინე.</h2><p>ყველა პატარა ზრუნვა მნიშვნელოვანია.</p><div class="greeting-flower" aria-hidden="true">✿</div></div><div class="preview-reminders"><div class="row-between"><h3>დღის პატარა გეგმები</h3><span class="mini-label">დღეს</span></div><div class="preview-reminder">${icon('heart', 'pink')}<span><strong>დრო შენზე ზრუნვისთვის</strong><small>ცოტა შეისვენე და ამოისუნთქე</small></span><span class="preview-time">10:00</span></div><div class="preview-reminder">${icon('calendar', 'blue')}<span><strong>შენი დაგეგმილი ვიზიტი</strong><small>ყველაფერი ერთ სივრცეში</small></span><span class="preview-time">14:30</span></div><div class="preview-reminder completed">${icon('check')}<span><strong>ერთი პატარა ნაბიჯი შენთვის</strong><small>დღეს უკვე მოასწარი</small></span><span class="preview-time">09:00</span></div></div><div class="preview-bottom"><span class="progress-dots"><i></i><i></i><i></i><i></i><i></i></span><span>შენ შესანიშნავად ართმევ თავს ♡</span></div></div><div class="floating-note note-bottom"><span class="note-bell">${icon('bell')}</span><span><strong>შენთვის მნიშვნელოვანს</strong><br>ერთად გავიხსენებთ.</span><span class="note-heart">♡</span></div></div></section>
   <div class="promise-strip"><div class="wrap">${icon('leaf')} ცოტა მეტი სიმშვიდე <span>✦</span> ცოტა ნაკლები საფიქრალი <span>✦</span> მეტი დრო შენთვის და პატარასთვის ${icon('heart')}</div></div>
@@ -82,6 +87,7 @@ function landing() {
   <section class="section how-section" id="how"><div class="wrap"><div class="center-heading"><span class="eyebrow">მარტივად, ზედმეტი ფიქრის გარეშე</span><h2>შენი სივრცე, სამ პატარა ნაბიჯში</h2></div><div class="steps"><article><span class="step-number">01</span><h3>გაგვაცანი შენი თავი</h3><p>აირჩიე შენი ეტაპი — ორსულად ხარ თუ უკვე ახალბედა დედა.</p></article><article><span class="step-number">02</span><h3>მოირგე ყოველდღიურობა</h3><p>ჩართე შეთავაზებული შეხსენებები და დაამატე შენი პირადი გეგმები.</p></article><article><span class="step-number">03</span><h3>გაიარე გზა შენი ტემპით</h3><p>ცხოვრება იცვლება? პროფილიდან შეცვალე ეტაპი და სივრცეც მოგერგება.</p></article></div></div></section>
   <section class="section wrap" id="reminders"><div class="reminder-feature"><div class="feature-symbol">${icon('bell')}<span>♡</span></div><div><span class="eyebrow">ნაკლები „არ დამავიწყდეს“</span><h2>მნიშვნელოვანი ამბები<br>თავის დროს გაგახსენდება.</h2><p>შენი შეხსენებები და შენს ეტაპზე მორგებული შეთავაზებები ერთად.<br>დრო, განმეორება და ცვლილებები — ყველაფერი შენს ხელშია.</p></div><button class="button" data-action="register">შექმენი პირველი შეხსენება ${icon('plus')}</button></div></section>
   <section class="section wrap lesson-landing" id="video-lessons"><div class="section-heading"><div><span class="eyebrow">ცოდნა მეტი სიმშვიდისთვის</span><h2>ვიდეოგაკვეთილები, შენს ეტაპზე.</h2></div><p>უყურე, როცა დრო და სურვილი გაქვს.<br>შენი ტემპით, შენს სივრცეში.</p></div><div class="lesson-landing-grid"><article class="lesson-preview"><div class="lesson-preview-icon">${icon('heart')}</div><div><span class="eyebrow">ორსულებისთვის</span><h3>მოემზადე ახალი დასაწყისისთვის</h3><p>მშობიარობისთვის მზადება, სუნთქვა და მოდუნება — მოსამზადებელი ვიდეოების სერია.</p></div></article><article class="lesson-preview lesson-preview-blue"><div class="lesson-preview-icon">${icon('baby')}</div><div><span class="eyebrow">ახალბედა დედებისთვის</span><h3>პირველი დღეები, მეტი თავდაჯერებით</h3><p>მშობიარობის შემდგომი პერიოდი და პირველი დღეები პატარასთან — ერთ ბიბლიოთეკაში.</p></div></article></div><button class="text-button" data-action="lessons">აღმოაჩინე შენი გაკვეთილები ${icon('arrow')}</button></section>
+  <section class="wrap"><div class="idea-landing-promo"><span class="eyebrow">შენთან ერთად ვქმნით Dediko-ს</span><h2>რა გაგიმარტივებდა ყოველდღიურობას?</h2><p>გაგვიზიარე იდეა, მხარი დაუჭირე სხვების მოთხოვნებს<br>და თვალი ადევნე, რას ვამატებთ Dediko-ში.</p><button class="text-button" data-action="ideas">იდეები Dediko-სთვის ${icon('arrow')}</button></div></section>
   <section class="wrap"><div class="pro-landing-promo"><div><span class="pro-label">${icon('spark')} DEDIKO PRO</span><h2>მეტი სივრცე შენი გეგმებისთვის.</h2><p>პერსონალური კვირის გეგმა, ჩანაწერები და კალენდრის ექსპორტი.<br>გამოსცადე Pro 7 დღით — ბარათის გარეშე.</p></div><button class="button" data-action="pro">აღმოაჩინე Dediko Pro ${icon('spark')}</button></div></section>
   <section class="closing wrap"><span class="closing-star">✧</span><span class="eyebrow">აქ შენზეც ზრუნავენ</span><h2>დედობა ახალი ამბავია.<br><span>დაწერე ის შენი ტემპით.</span></h2><button class="button" data-action="register">მოდი, ერთად დავიწყოთ ${icon('heart')}</button><p>შექმენი შენი პატარა, მშვიდი სივრცე.</p></section></main><footer class="footer wrap"><a class="brand" href="#">${logo()}</a><p>შენთან, დედობის ყოველ ნაბიჯზე.</p><span>© ${new Date().getFullYear()} Dediko</span></footer>`;
 }
@@ -107,7 +113,7 @@ function dashboard() {
   if (filter === 'personal') shown = reminders.filter(r => !r.automatic);
   if (filter === 'suggested') shown = reminders.filter(r => r.automatic);
   shown = [...shown].sort((a, b) => Number(isComplete(a)) - Number(isComplete(b)) || `${nextOccurrence(a)}${a.time}`.localeCompare(`${nextOccurrence(b)}${b.time}`));
-  return `<div class="dashboard-shell"><aside class="sidebar"><a href="#" class="brand" data-action="home">${logo()}</a><div class="sidebar-label">შენი პირადი სივრცე</div><nav aria-label="პირადი სივრცე"><button class="sidebar-item ${view === 'dashboard' ? 'active' : ''}" data-action="dashboard">${icon('grid')} ჩემი დღე</button><button class="sidebar-item" data-action="all-reminders">${icon('bell')} შეხსენებები <span class="nav-count">${reminders.length}</span></button><button class="sidebar-item ${view === 'lessons' ? 'active' : ''}" data-action="lessons">${icon('play')} ვიდეოგაკვეთილები</button><button class="sidebar-item pro-nav-link ${['pro', 'planner'].includes(view) ? 'active' : ''}" data-action="pro">${icon('spark')} Dediko Pro <span class="pro-mini">${trialStatus(data.pro).active ? 'აქტიური' : 'ახალი'}</span></button><button class="sidebar-item ${view === 'profile' ? 'active' : ''}" data-action="profile">${icon('user')} ჩემი პროფილი</button></nav><div class="sidebar-kind"><span>პატარა შეხსენება</span><div>♡</div><strong>საკუთარ თავზე ზრუნვაც<br>პატარაზე ზრუნვაა.</strong><p>შენც იმსახურებ შესვენებას.</p></div><button class="sidebar-item sidebar-bottom" data-action="${demo ? 'exit-demo' : 'home'}">${icon('logout')} ${demo ? 'დემოდან გასვლა' : 'მთავარი გვერდი'}</button></aside><div class="dashboard-content"><header class="dashboard-header"><div class="mobile-brand">${logo()}</div><span class="header-date">${formatDate(localDate(), { weekday: 'long', day: 'numeric', month: 'long' })}</span><div class="header-right">${trialStatus(data.pro).active ? '<button class="pro-header-badge" data-action="planner">✧ PRO</button>' : ''}<span class="stage-pill">${icon(profile.stage === 'pregnant' ? 'heart' : 'baby')}${stageName(profile.stage)}</span><button class="avatar" data-action="profile" aria-label="ჩემი პროფილი">${escape(profile.name.slice(0, 1))}</button></div></header><nav class="mobile-nav" aria-label="მობილური ნავიგაცია"><button data-action="dashboard">${icon('grid')} ჩემი დღე</button><button data-action="all-reminders">${icon('bell')} შეხსენებები</button><button data-action="lessons">${icon('play')} ვიდეოები</button><button data-action="pro">${icon('spark')} Pro</button><button data-action="profile">${icon('user')} პროფილი</button></nav><main class="dashboard-main" id="main">${demo ? '<div class="demo-banner"><span>ეს არის დემო სივრცე — ცვლილებები არ შეინახება.</span><button data-action="register">შექმენი შენი სივრცე →</button></div>' : ''}${view === 'profile' ? profileView() : view === 'pro' ? proView() : view === 'planner' ? plannerView() : view === 'lessons' ? lessonsView() : `<div class="dashboard-title"><div><span class="eyebrow">დღის დასაწყისი შენია</span><h1>გამარჯობა, ${escape(profile.name)} <span>♡</span></h1><p>მოდი, დღესაც პატარა ნაბიჯებით წავიდეთ.</p></div><button class="button" data-action="add-reminder">${icon('plus')} ახალი შეხსენება</button></div><section class="welcome-panel ${profile.stage === 'mother' ? 'mother-panel' : ''}"><div><span class="tag">${icon('spark')} ${profile.stage === 'pregnant' ? 'პატარას მოლოდინში' : 'ახალი დღე, ერთად'}</span><h2>${profile.stage === 'pregnant' ? 'შენი ყველაზე თბილი<br>მოლოდინის დღეები.' : 'პატარა ჩახუტებები.<br>დიდი ახალი ამბავი.'}</h2><p>${profile.stage === 'pregnant' ? 'იყავი საკუთარ თავთან ისეთივე ნაზი, როგორც შენს პატარასთან.' : 'ახალ რიტმს ნელ-ნელა იპოვი. საკუთარ თავსაც მოუსმინე.'}</p><span class="date-caption">${icon('calendar')} ${profile.stage === 'pregnant' ? 'პატარას ველოდებით:' : 'პატარას დაბადების დღე:'} ${formatDate(profile.referenceDate, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div><div class="welcome-art" aria-hidden="true"><span>♡</span><i>✧</i><small>შენ შესანიშნავად<br>ართმევ თავს</small></div></section><div class="dashboard-grid"><section class="reminders-panel"><div class="row-between panel-title"><div><span class="eyebrow">ცოტა მეტი სიმსუბუქე</span><h2>შენი შეხსენებები</h2></div>${icon('bell', 'pink')}</div><div class="tabs" role="group" aria-label="შეხსენებების ფილტრი">${[['today', 'დღეს'], ['all', 'ყველა'], ['personal', 'პირადი'], ['suggested', 'შეთავაზებული']].map(([key, name]) => `<button data-action="filter" data-filter="${key}" aria-pressed="${filter === key}" class="${filter === key ? 'selected' : ''}">${name}</button>`).join('')}</div><div class="reminders-list">${shown.length ? shown.map(reminderRow).join('') : `<div class="empty-state">${icon('leaf')}<h3>${filter === 'today' ? 'დღეს თავისუფალი სივრცე გაქვს' : 'აქ შენი გეგმები გამოჩნდება'}</h3><p>დაამატე შეხსენება და მნიშვნელოვანი ამბები ერთ ადგილას მოაგროვე.</p><button class="text-button" data-action="add-reminder">${icon('plus')} შეხსენების დამატება</button></div>`}</div><button class="add-reminder-inline" data-action="add-reminder">${icon('plus')} კიდევ ერთი პატარა გეგმა</button></section><aside class="day-aside"><section class="day-progress"><span class="eyebrow">შენი დღევანდელი ნაბიჯები</span><div class="progress-ring" style="--progress:${today.length ? (done / today.length) * 100 : 0}%"><div><strong>${done}<small> / ${today.length}</small></strong><span>შესრულებულია</span></div></div><h3>შენი ტემპი საკმარისია ♡</h3><p>ყველაფრის ერთ დღეში<br>მოსწრება საჭირო არ არის.</p></section><section class="tip-card">${icon('spark')}<h3>სივრცე შენთან ერთად იცვლება</h3><p>შეცვალე შენი ეტაპი პროფილიდან და მიიღე შესაბამისი შეხსენებები.</p><button class="text-button" data-action="profile">ჩემი პროფილი ${icon('arrow')}</button></section></aside></div>`}<p class="local-notice">${icon('heart')} შენი პირადი საცდელი სივრცე · მონაცემები ინახება მხოლოდ ამ ბრაუზერში · შეხსენებები ჩანს საიტზე</p></main></div></div>`;
+  return `<div class="dashboard-shell"><aside class="sidebar"><a href="#" class="brand" data-action="home">${logo()}</a><div class="sidebar-label">შენი პირადი სივრცე</div><nav aria-label="პირადი სივრცე"><button class="sidebar-item ${view === 'dashboard' ? 'active' : ''}" data-action="dashboard">${icon('grid')} ჩემი დღე</button><button class="sidebar-item" data-action="all-reminders">${icon('bell')} შეხსენებები <span class="nav-count">${reminders.length}</span></button><button class="sidebar-item ${view === 'lessons' ? 'active' : ''}" data-action="lessons">${icon('play')} ვიდეოგაკვეთილები</button><button class="sidebar-item ${view === 'ideas' ? 'active' : ''}" data-action="ideas">${icon('leaf')} იდეები Dediko-სთვის</button><button class="sidebar-item pro-nav-link ${['pro', 'planner'].includes(view) ? 'active' : ''}" data-action="pro">${icon('spark')} Dediko Pro <span class="pro-mini">${trialStatus(data.pro).active ? 'აქტიური' : 'ახალი'}</span></button><button class="sidebar-item ${view === 'profile' ? 'active' : ''}" data-action="profile">${icon('user')} ჩემი პროფილი</button></nav><div class="sidebar-kind"><span>პატარა შეხსენება</span><div>♡</div><strong>საკუთარ თავზე ზრუნვაც<br>პატარაზე ზრუნვაა.</strong><p>შენც იმსახურებ შესვენებას.</p></div><button class="sidebar-item sidebar-bottom" data-action="${demo ? 'exit-demo' : 'home'}">${icon('logout')} ${demo ? 'დემოდან გასვლა' : 'მთავარი გვერდი'}</button></aside><div class="dashboard-content"><header class="dashboard-header"><div class="mobile-brand">${logo()}</div><span class="header-date">${formatDate(localDate(), { weekday: 'long', day: 'numeric', month: 'long' })}</span><div class="header-right">${trialStatus(data.pro).active ? '<button class="pro-header-badge" data-action="planner">✧ PRO</button>' : ''}<span class="stage-pill">${icon(profile.stage === 'pregnant' ? 'heart' : 'baby')}${stageName(profile.stage)}</span><button class="avatar" data-action="profile" aria-label="ჩემი პროფილი">${escape(profile.name.slice(0, 1))}</button></div></header><nav class="mobile-nav" aria-label="მობილური ნავიგაცია"><button data-action="dashboard">${icon('grid')} ჩემი დღე</button><button data-action="all-reminders">${icon('bell')} შეხსენებები</button><button data-action="lessons">${icon('play')} ვიდეოები</button><button data-action="ideas">${icon('leaf')} იდეები</button><button data-action="pro">${icon('spark')} Pro</button><button data-action="profile">${icon('user')} პროფილი</button></nav><main class="dashboard-main" id="main">${demo ? '<div class="demo-banner"><span>ეს არის დემო სივრცე — ცვლილებები არ შეინახება.</span><button data-action="register">შექმენი შენი სივრცე →</button></div>' : ''}${view === 'profile' ? profileView() : view === 'ideas' ? ideasView() : view === 'pro' ? proView() : view === 'planner' ? plannerView() : view === 'lessons' ? lessonsView() : `<div class="dashboard-title"><div><span class="eyebrow">დღის დასაწყისი შენია</span><h1>გამარჯობა, ${escape(profile.name)} <span>♡</span></h1><p>მოდი, დღესაც პატარა ნაბიჯებით წავიდეთ.</p></div><button class="button" data-action="add-reminder">${icon('plus')} ახალი შეხსენება</button></div><section class="welcome-panel ${profile.stage === 'mother' ? 'mother-panel' : ''}"><div><span class="tag">${icon('spark')} ${profile.stage === 'pregnant' ? 'პატარას მოლოდინში' : 'ახალი დღე, ერთად'}</span><h2>${profile.stage === 'pregnant' ? 'შენი ყველაზე თბილი<br>მოლოდინის დღეები.' : 'პატარა ჩახუტებები.<br>დიდი ახალი ამბავი.'}</h2><p>${profile.stage === 'pregnant' ? 'იყავი საკუთარ თავთან ისეთივე ნაზი, როგორც შენს პატარასთან.' : 'ახალ რიტმს ნელ-ნელა იპოვი. საკუთარ თავსაც მოუსმინე.'}</p><span class="date-caption">${icon('calendar')} ${profile.stage === 'pregnant' ? 'პატარას ველოდებით:' : 'პატარას დაბადების დღე:'} ${formatDate(profile.referenceDate, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div><div class="welcome-art" aria-hidden="true"><span>♡</span><i>✧</i><small>შენ შესანიშნავად<br>ართმევ თავს</small></div></section><div class="dashboard-grid"><section class="reminders-panel"><div class="row-between panel-title"><div><span class="eyebrow">ცოტა მეტი სიმსუბუქე</span><h2>შენი შეხსენებები</h2></div>${icon('bell', 'pink')}</div><div class="tabs" role="group" aria-label="შეხსენებების ფილტრი">${[['today', 'დღეს'], ['all', 'ყველა'], ['personal', 'პირადი'], ['suggested', 'შეთავაზებული']].map(([key, name]) => `<button data-action="filter" data-filter="${key}" aria-pressed="${filter === key}" class="${filter === key ? 'selected' : ''}">${name}</button>`).join('')}</div><div class="reminders-list">${shown.length ? shown.map(reminderRow).join('') : `<div class="empty-state">${icon('leaf')}<h3>${filter === 'today' ? 'დღეს თავისუფალი სივრცე გაქვს' : 'აქ შენი გეგმები გამოჩნდება'}</h3><p>დაამატე შეხსენება და მნიშვნელოვანი ამბები ერთ ადგილას მოაგროვე.</p><button class="text-button" data-action="add-reminder">${icon('plus')} შეხსენების დამატება</button></div>`}</div><button class="add-reminder-inline" data-action="add-reminder">${icon('plus')} კიდევ ერთი პატარა გეგმა</button></section><aside class="day-aside"><section class="day-progress"><span class="eyebrow">შენი დღევანდელი ნაბიჯები</span><div class="progress-ring" style="--progress:${today.length ? (done / today.length) * 100 : 0}%"><div><strong>${done}<small> / ${today.length}</small></strong><span>შესრულებულია</span></div></div><h3>შენი ტემპი საკმარისია ♡</h3><p>ყველაფრის ერთ დღეში<br>მოსწრება საჭირო არ არის.</p></section><section class="tip-card">${icon('spark')}<h3>სივრცე შენთან ერთად იცვლება</h3><p>შეცვალე შენი ეტაპი პროფილიდან და მიიღე შესაბამისი შეხსენებები.</p><button class="text-button" data-action="profile">ჩემი პროფილი ${icon('arrow')}</button></section></aside></div>`}<p class="local-notice">${icon('heart')} შენი პირადი საცდელი სივრცე · მონაცემები ინახება მხოლოდ ამ ბრაუზერში · შეხსენებები ჩანს საიტზე</p></main></div></div>`;
 }
 
 function currentLessons() {
@@ -193,6 +199,67 @@ function watchLesson(id) {
   dialog.classList.add('video-dialog');
 }
 
+function ideaCard(idea) {
+  const category=ideaCategories.find(item=>item.id===idea.category)?.label||'სხვა';
+  const status=ideaStatuses.find(item=>item.id===idea.status)||ideaStatuses[0];
+  return `<article class="idea-card" id="idea-${escape(idea.id)}"><div class="idea-card-main"><div class="idea-card-meta"><span class="idea-category">${category}</span><span class="idea-status status-${status.id}">${status.label}</span>${idea.mine?'<span class="idea-mine">შენი იდეა</span>':''}</div><h2>${escape(idea.title)}</h2><p>${escape(idea.description)}</p><div class="idea-benefit"><span>რაში დაგეხმარება?</span><p>${escape(idea.benefit)}</p></div>${idea.reply?`<div class="idea-reply"><strong>${icon('heart')} Dediko-ს გუნდის პასუხი</strong><p>${escape(idea.reply)}</p></div>`:''}<div class="idea-card-bottom"><span>${formatDate(idea.createdAt.slice(0,10),{year:'numeric'})}</span><span class="idea-reference">#${escape(idea.id.slice(0,8))}</span>${idea.mine&&idea.votes<=(idea.voted?1:0)?`<button class="text-button" data-action="withdraw-idea" data-id="${escape(idea.id)}" ${ideaBoard.busy?'disabled':''}>იდეის გაუქმება</button>`:''}</div></div><button class="idea-vote ${idea.voted?'voted':''}" data-action="vote-idea" data-id="${escape(idea.id)}" aria-pressed="${Boolean(idea.voted)}" aria-label="${escape(idea.title)} — ${idea.voted?'ხმის გაუქმება':'მეც მჭირდება'}" ${ideaBoard.busy?'disabled':''}><span class="vote-arrow" aria-hidden="true">${idea.voted?'✓':'↑'}</span><strong>${idea.votes}</strong><span>${idea.voted?'შენი ხმაცაა':'მეც მჭირდება'}</span></button></article>`;
+}
+function ideaResults() {
+  if(ideaBoard.loading&&!ideaBoard.loaded) return '<div class="idea-loading" role="status">იდეები იტვირთება…</div>';
+  if(ideaBoard.error&&!ideaBoard.loaded) return `<div class="empty-state ideas-error">${icon('leaf')}<h2>იდეების ჩატვირთვა ვერ მოხერხდა</h2><p>${escape(ideaBoard.error)}</p><button class="text-button" data-action="refresh-ideas">ხელახლა ცდა ${icon('arrow')}</button></div>`;
+  const ideas=filterIdeas(ideaBoard.items,ideaFilters);
+  return `<p class="idea-results-count" role="status">${ideas.length} იდეა${ideaFilters.mine?' · შენი მოთხოვნები':''}</p><div class="idea-list">${ideas.length?ideas.map(ideaCard).join(''):`<div class="empty-state ideas-empty">${icon('leaf')}<h2>${ideaBoard.items.length?'ამ ფილტრით იდეა ვერ მოიძებნა':'პირველი იდეა შეიძლება შენი იყოს ♡'}</h2><p>${ideaBoard.items.length?'შეცვალე ფილტრი ან საძიებო სიტყვა.':'რა გაგიმარტივებდა ორსულობას ან დედობის ყოველდღიურობას? მოგვიყევი.'}</p><button class="text-button" data-action="${ideaBoard.items.length?'reset-idea-filters':'new-idea'}">${ideaBoard.items.length?'ყველა იდეის ნახვა':'პირველი იდეის დამატება'} ${icon('plus')}</button></div>`}</div>`;
+}
+function ideasView() {
+  return `<div class="dashboard-title"><div><span class="eyebrow">შენთან ერთად ვქმნით Dediko-ს</span><h1>იდეები Dediko-სთვის <span>♡</span></h1><p>მოგვიყევი, რა გაკლია. აღმოაჩინე სხვების იდეები და მიეცი ხმა.</p></div><button class="button" data-action="new-idea" ${!ideaBoard.loaded||ideaBoard.busy?'disabled':''}>${icon('plus')} დაამატე შენი იდეა</button></div><section class="ideas-intro"><div><span class="tag">${icon('heart')} Free და Pro — ყველასთვის</span><h2>შენი გამოცდილება.<br>ჩვენი შემდეგი ნაბიჯი.</h2><p>შენ ირჩევ, რა დაგეხმარება ყოველდღიურობაში.<br>გუნდი კი აქვე გაგიზიარებს იდეის სტატუსს.</p></div><div class="ideas-intro-art" aria-hidden="true">${icon('leaf')}<span>✧</span></div></section><div class="idea-guide"><span>${icon('plus')} გაგვიზიარე იდეა</span><span>${icon('heart')} „მეც მჭირდება“</span><span>${icon('spark')} თვალი ადევნე ცვლილებას</span></div><section class="ideas-board" aria-label="იდეების საერთო დაფა"><div class="ideas-toolbar"><label class="lesson-search">${icon('search')}<input name="ideaSearch" type="search" maxlength="100" aria-label="იდეების ძიება" placeholder="მოძებნე, იქნებ უკვე მოითხოვეს…" value="${escape(ideaFilters.search)}"></label><div class="idea-selects"><label><span class="visually-hidden">იდეების სტატუსი</span><select name="ideaStatus" aria-label="იდეების სტატუსი"><option value="all">ყველა სტატუსი</option>${ideaStatuses.map(status=>`<option value="${status.id}" ${ideaFilters.status===status.id?'selected':''}>${status.label}</option>`).join('')}</select></label><label><span class="visually-hidden">იდეების დალაგება</span><select name="ideaSort" aria-label="იდეების დალაგება"><option value="popular" ${ideaFilters.sort==='popular'?'selected':''}>პოპულარული</option><option value="newest" ${ideaFilters.sort==='newest'?'selected':''}>ახალი დამატებული</option></select></label><button class="icon-button" data-action="refresh-ideas" aria-label="იდეების განახლება" ${ideaBoard.loading||ideaBoard.busy?'disabled':''}>↻</button></div></div><div class="idea-categories" role="group" aria-label="იდეების კატეგორიები">${[{id:'all',label:'ყველა'},...ideaCategories].map(category=>`<button class="${ideaFilters.category===category.id?'selected':''}" aria-pressed="${ideaFilters.category===category.id}" data-action="idea-category" data-filter="${category.id}">${category.label}</button>`).join('')}<button class="idea-own-filter ${ideaFilters.mine?'selected':''}" aria-pressed="${ideaFilters.mine}" data-action="my-ideas">ჩემი იდეები</button></div>${ideaBoard.error&&ideaBoard.loaded?`<p class="idea-inline-error" role="alert">${escape(ideaBoard.error)}</p>`:''}<div id="idea-results">${ideaResults()}</div></section><p class="ideas-footnote">ხმები ითვლება თითო ბრაუზერიდან. სტატუსებსა და პასუხებს Dediko-ს გუნდი აახლებს.</p>`;
+}
+function publicIdeasPage() {
+  return `<header class="site-header wrap"><a class="brand" href="/" data-action="home">${logo()}</a><a class="text-button" href="/" data-action="home">მთავარი გვერდი ${icon('arrow')}</a></header><main class="wrap public-ideas-main" id="main">${ideasView()}</main><footer class="footer wrap">${logo()}<p>შენთან, დედობის ყოველ ნაბიჯზე.</p><span>© ${new Date().getFullYear()} Dediko</span></footer>`;
+}
+async function requestIdeas(method='GET',body) {
+  const response=await fetch('/api/ideas',{method,credentials:'same-origin',cache:'no-store',...(body?{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});
+  let result;try{result=await response.json();}catch{throw new Error('იდეების სერვისი დროებით მიუწვდომელია. მოგვიანებით სცადე.');}
+  if(!response.ok) {const error=new Error(result.error||'შენახვა ვერ მოხერხდა.');error.existingId=result.existingId;throw error;}
+  if(!Array.isArray(result.ideas)) throw new Error('იდეების პასუხის ფორმატი არასწორია.');
+  return result.ideas;
+}
+async function loadIdeas() {
+  if(ideaBoard.loading||ideaBoard.busy)return;
+  ideaBoard.loading=true;ideaBoard.error='';if(view==='ideas')render();
+  try{ideaBoard.items=await requestIdeas();ideaBoard.loaded=true;}catch(error){ideaBoard.error=error.message;}
+  finally{ideaBoard.loading=false;if(view==='ideas')render();}
+}
+function newIdeaDialog() {
+  if(!ideaBoard.loaded||ideaBoard.busy)return;
+  const draft=ideaDraft||{};
+  openDialog(`<div class="dialog-symbol">${icon('leaf')}</div><span class="eyebrow">შენი იდეა მნიშვნელოვანია</span><h2 id="dialog-title">რას დაამატებდი Dediko-ს?</h2><p class="dialog-intro">აღწერე ერთი კონკრეტული იდეა და გვითხარი, როგორ დაგეხმარებოდა.</p><form id="idea-form"><label class="field">იდეის სათაური<input name="title" required minlength="8" maxlength="100" placeholder="მაგ. შეხსენებების პარტნიორთან გაზიარება" value="${escape(draft.title||'')}"></label><label class="field">კატეგორია<select name="category">${ideaCategories.map(category=>`<option value="${category.id}" ${(draft.category||data.profile?.stage||'other')===category.id?'selected':''}>${category.label}</option>`).join('')}</select></label><label class="field">მოგვიყევი იდეის შესახებ<textarea name="description" required minlength="20" maxlength="1000" rows="4" placeholder="რა ფუნქცია გჭირდება და როგორ გამოიყენებდი?">${escape(draft.description||'')}</textarea></label><label class="field">რაში დაგეხმარებოდა?<textarea name="benefit" required minlength="10" maxlength="400" rows="2" placeholder="რა გაგიმარტივდებოდა ყოველდღიურობაში?">${escape(draft.benefit||'')}</textarea></label><label class="idea-honeypot" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label><label class="idea-publish-consent"><input type="checkbox" name="publish" required ${draft.publish==='on'?'checked':''}><span>ვეთანხმები, რომ იდეა საჯაროდ გამოჩნდება. პირად და სამედიცინო მონაცემებს არ ვუთითებ.</span></label><div class="form-error" role="alert"></div><button class="button full-width" type="submit">იდეის გაგზავნა ${icon('arrow')}</button><p class="idea-form-note">ახალი იდეა მიიღებს სტატუსს „განხილვაშია“. მას შენი პირველი ხმაც დაემატება.</p></form>`);
+}
+async function submitIdea(form,values) {
+  if(ideaBoard.busy)return;
+  ideaDraft=values;
+  const errorNode=form.querySelector('.form-error');
+  const validation=validateIdea({...values,publish:values.publish==='on'});
+  if(validation.error){errorNode.textContent=validation.error;return;}
+  errorNode.textContent='';ideaBoard.busy=true;form.querySelector('button[type="submit"]').disabled=true;
+  try{
+    ideaBoard.items=await requestIdeas('POST',{...validation.value,publish:true,website:values.website||''});
+    ideaBoard.loaded=true;ideaBoard.error='';ideaDraft=null;dialog.close();ideaFilters={category:'all',status:'all',search:'',sort:'newest',mine:false};toast('შენი იდეა მივიღეთ ♡ ის საერთო დაფაზე გამოჩნდა.');
+  }catch(error){errorNode.textContent=error.message;}
+  finally{ideaBoard.busy=false;if(form.isConnected)form.querySelector('button[type="submit"]').disabled=false;if(view==='ideas')render();}
+}
+async function voteIdea(id) {
+  if(ideaBoard.busy)return;
+  const idea=ideaBoard.items.find(item=>item.id===id);if(!idea)return;
+  ideaBoard.busy=true;ideaBoard.error='';render();
+  try{ideaBoard.items=await requestIdeas('PATCH',{id,voted:!idea.voted});}catch(error){ideaBoard.error=error.message;}
+  finally{ideaBoard.busy=false;if(view==='ideas')render();}
+}
+async function withdrawIdea(id) {
+  if(ideaBoard.busy)return;ideaBoard.busy=true;
+  try{ideaBoard.items=await requestIdeas('DELETE',{id});dialog.close();toast('შენი იდეა გაუქმებულია.');}catch(error){toast(error.message);}
+  finally{ideaBoard.busy=false;if(view==='ideas')render();}
+}
+
 function proView() {
   const status = trialStatus(data.pro);
   return `<div class="pro-heading"><span class="pro-label">${icon('spark')} DEDIKO PRO</span><h1>ცოტა მეტი სივრცე.<br><span>შენი მშვიდი ყოველდღიურობისთვის.</span></h1><p>შენი კვირის გეგმა, პირადი ჩანაწერები და მნიშვნელოვანი ამბები — ერთად.</p></div>
@@ -253,8 +320,8 @@ function profileView() {
 function render() {
   renderedDate = localDate();
   renderedProActive = trialStatus(data.pro).active;
-  app.innerHTML = view === 'landing' ? landing() : view === 'pro' && !data.profile ? publicProPage() : dashboard();
-  document.title = `Dediko — ${view === 'landing' ? 'შენთან, დედობის ყოველ ნაბიჯზე' : view === 'pro' ? 'Dediko Pro' : view === 'planner' ? 'ჩემი Pro გეგმა' : view === 'profile' ? 'ჩემი პროფილი' : view === 'lessons' ? 'ვიდეოგაკვეთილები' : 'ჩემი დღე'}`;
+  app.innerHTML = view === 'landing' ? landing() : view === 'pro' && !data.profile ? publicProPage() : view === 'ideas' && !data.profile ? publicIdeasPage() : dashboard();
+  document.title = `Dediko — ${view === 'landing' ? 'შენთან, დედობის ყოველ ნაბიჯზე' : view === 'ideas' ? 'იდეები Dediko-სთვის' : view === 'pro' ? 'Dediko Pro' : view === 'planner' ? 'ჩემი Pro გეგმა' : view === 'profile' ? 'ჩემი პროფილი' : view === 'lessons' ? 'ვიდეოგაკვეთილები' : 'ჩემი დღე'}`;
 }
 function openDialog(content) {
   dialog.classList.remove('video-dialog');
@@ -288,6 +355,15 @@ document.addEventListener('click', event => {
   if (!button) return;
   event.preventDefault();
   const { action, id } = button.dataset;
+  if(action==='ideas'){view='ideas';history.replaceState(null,'','?page=ideas');render();window.scrollTo(0,0);loadIdeas();return;}
+  if(action==='refresh-ideas'){loadIdeas();return;}
+  if(action==='new-idea'){newIdeaDialog();return;}
+  if(action==='vote-idea'){voteIdea(id);return;}
+  if(action==='idea-category'){ideaFilters.category=button.dataset.filter;render();return;}
+  if(action==='my-ideas'){ideaFilters.mine=!ideaFilters.mine;render();return;}
+  if(action==='reset-idea-filters'){ideaFilters={category:'all',status:'all',search:'',sort:'popular',mine:false};render();return;}
+  if(action==='withdraw-idea')return openDialog(`<h2 id="dialog-title">გააუქმებ შენს იდეას?</h2><p class="dialog-intro">იდეა საერთო დაფიდან წაიშლება.</p><button class="button full-width" data-action="confirm-withdraw-idea" data-id="${escape(id)}">დიახ, გავაუქმო იდეა</button><button class="delete-button" data-action="close-dialog">დატოვება</button>`);
+  if(action==='confirm-withdraw-idea'){withdrawIdea(id);return;}
   if (action === 'pro') { view = 'pro'; history.replaceState(null, '', '?page=pro'); render(); window.scrollTo(0, 0); return; }
   if (action === 'start-pro-trial') {
     if (!data.profile || demo) { pendingProTrial = true; register(); return; }
@@ -372,6 +448,7 @@ document.addEventListener('click', event => {
 });
 
 document.addEventListener('change', event => {
+  if(['ideaStatus','ideaSort'].includes(event.target.name)){ideaFilters[event.target.name==='ideaStatus'?'status':'sort']=event.target.value;document.querySelector('#idea-results').innerHTML=ideaResults();return;}
   if (event.target.name === 'lessonStage') {
     const select = event.target.form.elements.lessonCategory;
     select.innerHTML = lessonCategories(event.target.value).map(category => `<option value="${category.id}">${category.label}</option>`).join('');
@@ -388,10 +465,11 @@ document.addEventListener('change', event => {
 
 document.addEventListener('submit', event => {
   const form = event.target;
-  if (!['register-form', 'profile-form', 'reminder-form', 'lesson-form', 'planner-task-form', 'planner-notes-form'].includes(form.id)) return;
+  if (!['register-form', 'profile-form', 'reminder-form', 'lesson-form', 'planner-task-form', 'planner-notes-form', 'idea-form'].includes(form.id)) return;
   event.preventDefault();
   const values = Object.fromEntries(new FormData(form));
   const error = form.querySelector('.form-error');
+  if (form.id === 'idea-form') { submitIdea(form, values); return; }
   if (form.id.startsWith('planner-')) return submitPlanner(form, values);
   if (form.id === 'lesson-form') return submitLesson(form, values);
   if (form.id === 'register-form' || form.id === 'profile-form') {
@@ -418,6 +496,8 @@ document.addEventListener('submit', event => {
 });
 
 document.addEventListener('input', event => {
+  if(event.target.name==='ideaSearch'){ideaFilters.search=event.target.value;document.querySelector('#idea-results').innerHTML=ideaResults();return;}
+  if(event.target.closest('form')?.id==='idea-form'){ideaDraft=Object.fromEntries(new FormData(event.target.closest('form')));return;}
   if (event.target.name !== 'lessonSearch') return;
   lessonSearch = event.target.value;
   document.querySelector('#lesson-results').innerHTML = lessonResults();
@@ -438,3 +518,4 @@ setInterval(() => {
   }
 }, 30000);
 render();
+if(view==='ideas')loadIdeas();

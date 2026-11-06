@@ -4,6 +4,7 @@ node_modules/
 artifacts/
 dist/
 .vercel/
+.local/
 .env
 .env.*
 !.env.example
