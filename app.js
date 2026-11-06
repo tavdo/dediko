@@ -1,5 +1,6 @@
 import { localDate, nextOccurrence, completionKey, suggestedReminders } from './model.js';
 import { parseVideoUrl, lessonsForStage, lessonCategories, migrateLessonState } from './lessons.js';
+import { proPrice, trialStatus, startProTrial, weekStart, shiftDate, weeklyTemplate, migrateProState, remindersToCalendar } from './pro.js';
 
 const app = document.querySelector('#app');
 const dialog = document.querySelector('#form-dialog');
@@ -26,19 +27,23 @@ const icons = {
 };
 const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.heart}</svg>`;
 const logo = () => '<img class="brand-image" src="assets/dediko-logo.jpg" alt="DediKo — დედასა და ბავშვზე ზრუნვა" width="210" height="74">';
-const emptyData = () => ({ version: 1, profile: null, reminders: [], lessons: [], completedLessons: [] });
+const emptyData = () => ({ version: 1, profile: null, reminders: [], lessons: [], completedLessons: [], pro: null, plannerTasks: [], plannerNotes: {} });
 let data = load();
-let view = data.profile ? 'dashboard' : 'landing';
+let view = new URLSearchParams(location.search).get('page') === 'pro' ? 'pro' : data.profile ? 'dashboard' : 'landing';
 let filter = 'today';
 let demo = false;
 let toastTimer;
 let lessonFilter = 'all';
 let lessonSearch = '';
+let plannerWeek = weekStart();
+let pendingProTrial = false;
+let renderedDate = localDate();
+let renderedProActive = trialStatus(data.pro).active;
 
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
-    if (saved?.version === 1 && Array.isArray(saved.reminders) && (saved.profile === null || ['pregnant', 'mother'].includes(saved.profile?.stage))) return migrateLessonState(saved);
+    if (saved?.version === 1 && Array.isArray(saved.reminders) && (saved.profile === null || ['pregnant', 'mother'].includes(saved.profile?.stage))) return migrateProState(migrateLessonState(saved));
   } catch { /* A fresh local space can still be used when storage is unavailable. */ }
   return emptyData();
 }
@@ -69,7 +74,7 @@ function stageChoices(selected) {
 }
 
 function landing() {
-  return `<header class="site-header wrap"><a class="brand" href="#" aria-label="Dediko მთავარი">${logo()}</a><nav aria-label="მთავარი ნავიგაცია"><a href="#how">როგორ მუშაობს</a><a href="#for-you">შენთვის</a><a href="#reminders">შეხსენებები</a><a href="#video-lessons">ვიდეოები</a></nav><button class="button button-small" data-action="register">შექმენი შენი სივრცე ${icon('arrow')}</button></header>
+  return `<header class="site-header wrap"><a class="brand" href="#" aria-label="Dediko მთავარი">${logo()}</a><nav aria-label="მთავარი ნავიგაცია"><a href="#how">როგორ მუშაობს</a><a href="#for-you">შენთვის</a><a href="#reminders">შეხსენებები</a><a href="#video-lessons">ვიდეოები</a><a href="?page=pro" data-action="pro" class="pro-nav-link">Dediko Pro ✧</a></nav><button class="button button-small" data-action="register">შექმენი შენი სივრცე ${icon('arrow')}</button></header>
   <main id="main"><section class="hero wrap"><div class="hero-copy"><div class="eyebrow"><span class="tiny-heart">${icon('heart')}</span> შენთან, დედობის ყოველ ნაბიჯზე</div><h1>ახალი სიცოცხლე.<br>ახალი შენ.<br><span>ერთად, უფრო მშვიდად.</span></h1><p>პატარას მოლოდინიდან პირველ ჩახუტებამდე —<br class="desktop-break"> შენი პირადი სივრცე ზრუნვისთვის, დაგეგმვისთვის<br class="desktop-break"> და ყველაფრის მშვიდად მოსასწრებად.</p><div class="hero-actions"><button class="button" data-action="register">დაიწყე შენი ამბავი ${icon('arrow')}</button><button class="text-button" data-action="demo">დაათვალიერე სივრცე <span>↗</span></button></div><div class="hero-note">${icon('check')} შენი ტემპით ${icon('check')} შენზე მორგებული ${icon('check')} სიყვარულით შექმნილი</div></div>
   <div class="hero-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><span class="art-spark spark-one">✧</span><span class="art-spark spark-two">✧</span><div class="floating-note note-top">${icon('heart')} <span>პატარა ნაბიჯები,<br><strong>დიდი სიყვარული</strong></span></div><div class="preview-card"><div class="preview-top"><span class="preview-avatar">ა</span><div><span class="mini-label">შენი ყოველდღიური თანამგზავრი</span><strong>დილა მშვიდობისა, დედიკო <span class="pink">♡</span></strong></div><span class="preview-dot"></span></div><div class="preview-greeting"><span class="tag">${icon('spark')} შენი სივრცის მაგალითი</span><h2>დღეს საკუთარ თავსაც<br>მოუსმინე.</h2><p>ყველა პატარა ზრუნვა მნიშვნელოვანია.</p><div class="greeting-flower" aria-hidden="true">✿</div></div><div class="preview-reminders"><div class="row-between"><h3>დღის პატარა გეგმები</h3><span class="mini-label">დღეს</span></div><div class="preview-reminder">${icon('heart', 'pink')}<span><strong>დრო შენზე ზრუნვისთვის</strong><small>ცოტა შეისვენე და ამოისუნთქე</small></span><span class="preview-time">10:00</span></div><div class="preview-reminder">${icon('calendar', 'blue')}<span><strong>შენი დაგეგმილი ვიზიტი</strong><small>ყველაფერი ერთ სივრცეში</small></span><span class="preview-time">14:30</span></div><div class="preview-reminder completed">${icon('check')}<span><strong>ერთი პატარა ნაბიჯი შენთვის</strong><small>დღეს უკვე მოასწარი</small></span><span class="preview-time">09:00</span></div></div><div class="preview-bottom"><span class="progress-dots"><i></i><i></i><i></i><i></i><i></i></span><span>შენ შესანიშნავად ართმევ თავს ♡</span></div></div><div class="floating-note note-bottom"><span class="note-bell">${icon('bell')}</span><span><strong>შენთვის მნიშვნელოვანს</strong><br>ერთად გავიხსენებთ.</span><span class="note-heart">♡</span></div></div></section>
   <div class="promise-strip"><div class="wrap">${icon('leaf')} ცოტა მეტი სიმშვიდე <span>✦</span> ცოტა ნაკლები საფიქრალი <span>✦</span> მეტი დრო შენთვის და პატარასთვის ${icon('heart')}</div></div>
@@ -77,6 +82,7 @@ function landing() {
   <section class="section how-section" id="how"><div class="wrap"><div class="center-heading"><span class="eyebrow">მარტივად, ზედმეტი ფიქრის გარეშე</span><h2>შენი სივრცე, სამ პატარა ნაბიჯში</h2></div><div class="steps"><article><span class="step-number">01</span><h3>გაგვაცანი შენი თავი</h3><p>აირჩიე შენი ეტაპი — ორსულად ხარ თუ უკვე ახალბედა დედა.</p></article><article><span class="step-number">02</span><h3>მოირგე ყოველდღიურობა</h3><p>ჩართე შეთავაზებული შეხსენებები და დაამატე შენი პირადი გეგმები.</p></article><article><span class="step-number">03</span><h3>გაიარე გზა შენი ტემპით</h3><p>ცხოვრება იცვლება? პროფილიდან შეცვალე ეტაპი და სივრცეც მოგერგება.</p></article></div></div></section>
   <section class="section wrap" id="reminders"><div class="reminder-feature"><div class="feature-symbol">${icon('bell')}<span>♡</span></div><div><span class="eyebrow">ნაკლები „არ დამავიწყდეს“</span><h2>მნიშვნელოვანი ამბები<br>თავის დროს გაგახსენდება.</h2><p>შენი შეხსენებები და შენს ეტაპზე მორგებული შეთავაზებები ერთად.<br>დრო, განმეორება და ცვლილებები — ყველაფერი შენს ხელშია.</p></div><button class="button" data-action="register">შექმენი პირველი შეხსენება ${icon('plus')}</button></div></section>
   <section class="section wrap lesson-landing" id="video-lessons"><div class="section-heading"><div><span class="eyebrow">ცოდნა მეტი სიმშვიდისთვის</span><h2>ვიდეოგაკვეთილები, შენს ეტაპზე.</h2></div><p>უყურე, როცა დრო და სურვილი გაქვს.<br>შენი ტემპით, შენს სივრცეში.</p></div><div class="lesson-landing-grid"><article class="lesson-preview"><div class="lesson-preview-icon">${icon('heart')}</div><div><span class="eyebrow">ორსულებისთვის</span><h3>მოემზადე ახალი დასაწყისისთვის</h3><p>მშობიარობისთვის მზადება, სუნთქვა და მოდუნება — მოსამზადებელი ვიდეოების სერია.</p></div></article><article class="lesson-preview lesson-preview-blue"><div class="lesson-preview-icon">${icon('baby')}</div><div><span class="eyebrow">ახალბედა დედებისთვის</span><h3>პირველი დღეები, მეტი თავდაჯერებით</h3><p>მშობიარობის შემდგომი პერიოდი და პირველი დღეები პატარასთან — ერთ ბიბლიოთეკაში.</p></div></article></div><button class="text-button" data-action="lessons">აღმოაჩინე შენი გაკვეთილები ${icon('arrow')}</button></section>
+  <section class="wrap"><div class="pro-landing-promo"><div><span class="pro-label">${icon('spark')} DEDIKO PRO</span><h2>მეტი სივრცე შენი გეგმებისთვის.</h2><p>პერსონალური კვირის გეგმა, ჩანაწერები და კალენდრის ექსპორტი.<br>გამოსცადე Pro 7 დღით — ბარათის გარეშე.</p></div><button class="button" data-action="pro">აღმოაჩინე Dediko Pro ${icon('spark')}</button></div></section>
   <section class="closing wrap"><span class="closing-star">✧</span><span class="eyebrow">აქ შენზეც ზრუნავენ</span><h2>დედობა ახალი ამბავია.<br><span>დაწერე ის შენი ტემპით.</span></h2><button class="button" data-action="register">მოდი, ერთად დავიწყოთ ${icon('heart')}</button><p>შექმენი შენი პატარა, მშვიდი სივრცე.</p></section></main><footer class="footer wrap"><a class="brand" href="#">${logo()}</a><p>შენთან, დედობის ყოველ ნაბიჯზე.</p><span>© ${new Date().getFullYear()} Dediko</span></footer>`;
 }
 
@@ -101,7 +107,7 @@ function dashboard() {
   if (filter === 'personal') shown = reminders.filter(r => !r.automatic);
   if (filter === 'suggested') shown = reminders.filter(r => r.automatic);
   shown = [...shown].sort((a, b) => Number(isComplete(a)) - Number(isComplete(b)) || `${nextOccurrence(a)}${a.time}`.localeCompare(`${nextOccurrence(b)}${b.time}`));
-  return `<div class="dashboard-shell"><aside class="sidebar"><a href="#" class="brand" data-action="home">${logo()}</a><div class="sidebar-label">შენი პირადი სივრცე</div><nav aria-label="პირადი სივრცე"><button class="sidebar-item ${view === 'dashboard' ? 'active' : ''}" data-action="dashboard">${icon('grid')} ჩემი დღე</button><button class="sidebar-item" data-action="all-reminders">${icon('bell')} შეხსენებები <span class="nav-count">${reminders.length}</span></button><button class="sidebar-item ${view === 'lessons' ? 'active' : ''}" data-action="lessons">${icon('play')} ვიდეოგაკვეთილები</button><button class="sidebar-item ${view === 'profile' ? 'active' : ''}" data-action="profile">${icon('user')} ჩემი პროფილი</button></nav><div class="sidebar-kind"><span>პატარა შეხსენება</span><div>♡</div><strong>საკუთარ თავზე ზრუნვაც<br>პატარაზე ზრუნვაა.</strong><p>შენც იმსახურებ შესვენებას.</p></div><button class="sidebar-item sidebar-bottom" data-action="${demo ? 'exit-demo' : 'home'}">${icon('logout')} ${demo ? 'დემოდან გასვლა' : 'მთავარი გვერდი'}</button></aside><div class="dashboard-content"><header class="dashboard-header"><div class="mobile-brand">${logo()}</div><span class="header-date">${formatDate(localDate(), { weekday: 'long', day: 'numeric', month: 'long' })}</span><div class="header-right"><span class="stage-pill">${icon(profile.stage === 'pregnant' ? 'heart' : 'baby')}${stageName(profile.stage)}</span><button class="avatar" data-action="profile" aria-label="ჩემი პროფილი">${escape(profile.name.slice(0, 1))}</button></div></header><nav class="mobile-nav" aria-label="მობილური ნავიგაცია"><button data-action="dashboard">${icon('grid')} ჩემი დღე</button><button data-action="all-reminders">${icon('bell')} შეხსენებები</button><button data-action="lessons">${icon('play')} ვიდეოები</button><button data-action="profile">${icon('user')} პროფილი</button></nav><main class="dashboard-main" id="main">${demo ? '<div class="demo-banner"><span>ეს არის დემო სივრცე — ცვლილებები არ შეინახება.</span><button data-action="register">შექმენი შენი სივრცე →</button></div>' : ''}${view === 'profile' ? profileView() : view === 'lessons' ? lessonsView() : `<div class="dashboard-title"><div><span class="eyebrow">დღის დასაწყისი შენია</span><h1>გამარჯობა, ${escape(profile.name)} <span>♡</span></h1><p>მოდი, დღესაც პატარა ნაბიჯებით წავიდეთ.</p></div><button class="button" data-action="add-reminder">${icon('plus')} ახალი შეხსენება</button></div><section class="welcome-panel ${profile.stage === 'mother' ? 'mother-panel' : ''}"><div><span class="tag">${icon('spark')} ${profile.stage === 'pregnant' ? 'პატარას მოლოდინში' : 'ახალი დღე, ერთად'}</span><h2>${profile.stage === 'pregnant' ? 'შენი ყველაზე თბილი<br>მოლოდინის დღეები.' : 'პატარა ჩახუტებები.<br>დიდი ახალი ამბავი.'}</h2><p>${profile.stage === 'pregnant' ? 'იყავი საკუთარ თავთან ისეთივე ნაზი, როგორც შენს პატარასთან.' : 'ახალ რიტმს ნელ-ნელა იპოვი. საკუთარ თავსაც მოუსმინე.'}</p><span class="date-caption">${icon('calendar')} ${profile.stage === 'pregnant' ? 'პატარას ველოდებით:' : 'პატარას დაბადების დღე:'} ${formatDate(profile.referenceDate, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div><div class="welcome-art" aria-hidden="true"><span>♡</span><i>✧</i><small>შენ შესანიშნავად<br>ართმევ თავს</small></div></section><div class="dashboard-grid"><section class="reminders-panel"><div class="row-between panel-title"><div><span class="eyebrow">ცოტა მეტი სიმსუბუქე</span><h2>შენი შეხსენებები</h2></div>${icon('bell', 'pink')}</div><div class="tabs" role="group" aria-label="შეხსენებების ფილტრი">${[['today', 'დღეს'], ['all', 'ყველა'], ['personal', 'პირადი'], ['suggested', 'შეთავაზებული']].map(([key, name]) => `<button data-action="filter" data-filter="${key}" aria-pressed="${filter === key}" class="${filter === key ? 'selected' : ''}">${name}</button>`).join('')}</div><div class="reminders-list">${shown.length ? shown.map(reminderRow).join('') : `<div class="empty-state">${icon('leaf')}<h3>${filter === 'today' ? 'დღეს თავისუფალი სივრცე გაქვს' : 'აქ შენი გეგმები გამოჩნდება'}</h3><p>დაამატე შეხსენება და მნიშვნელოვანი ამბები ერთ ადგილას მოაგროვე.</p><button class="text-button" data-action="add-reminder">${icon('plus')} შეხსენების დამატება</button></div>`}</div><button class="add-reminder-inline" data-action="add-reminder">${icon('plus')} კიდევ ერთი პატარა გეგმა</button></section><aside class="day-aside"><section class="day-progress"><span class="eyebrow">შენი დღევანდელი ნაბიჯები</span><div class="progress-ring" style="--progress:${today.length ? (done / today.length) * 100 : 0}%"><div><strong>${done}<small> / ${today.length}</small></strong><span>შესრულებულია</span></div></div><h3>შენი ტემპი საკმარისია ♡</h3><p>ყველაფრის ერთ დღეში<br>მოსწრება საჭირო არ არის.</p></section><section class="tip-card">${icon('spark')}<h3>სივრცე შენთან ერთად იცვლება</h3><p>შეცვალე შენი ეტაპი პროფილიდან და მიიღე შესაბამისი შეხსენებები.</p><button class="text-button" data-action="profile">ჩემი პროფილი ${icon('arrow')}</button></section></aside></div>`}<p class="local-notice">${icon('heart')} შენი პირადი საცდელი სივრცე · მონაცემები ინახება მხოლოდ ამ ბრაუზერში · შეხსენებები ჩანს საიტზე</p></main></div></div>`;
+  return `<div class="dashboard-shell"><aside class="sidebar"><a href="#" class="brand" data-action="home">${logo()}</a><div class="sidebar-label">შენი პირადი სივრცე</div><nav aria-label="პირადი სივრცე"><button class="sidebar-item ${view === 'dashboard' ? 'active' : ''}" data-action="dashboard">${icon('grid')} ჩემი დღე</button><button class="sidebar-item" data-action="all-reminders">${icon('bell')} შეხსენებები <span class="nav-count">${reminders.length}</span></button><button class="sidebar-item ${view === 'lessons' ? 'active' : ''}" data-action="lessons">${icon('play')} ვიდეოგაკვეთილები</button><button class="sidebar-item pro-nav-link ${['pro', 'planner'].includes(view) ? 'active' : ''}" data-action="pro">${icon('spark')} Dediko Pro <span class="pro-mini">${trialStatus(data.pro).active ? 'აქტიური' : 'ახალი'}</span></button><button class="sidebar-item ${view === 'profile' ? 'active' : ''}" data-action="profile">${icon('user')} ჩემი პროფილი</button></nav><div class="sidebar-kind"><span>პატარა შეხსენება</span><div>♡</div><strong>საკუთარ თავზე ზრუნვაც<br>პატარაზე ზრუნვაა.</strong><p>შენც იმსახურებ შესვენებას.</p></div><button class="sidebar-item sidebar-bottom" data-action="${demo ? 'exit-demo' : 'home'}">${icon('logout')} ${demo ? 'დემოდან გასვლა' : 'მთავარი გვერდი'}</button></aside><div class="dashboard-content"><header class="dashboard-header"><div class="mobile-brand">${logo()}</div><span class="header-date">${formatDate(localDate(), { weekday: 'long', day: 'numeric', month: 'long' })}</span><div class="header-right">${trialStatus(data.pro).active ? '<button class="pro-header-badge" data-action="planner">✧ PRO</button>' : ''}<span class="stage-pill">${icon(profile.stage === 'pregnant' ? 'heart' : 'baby')}${stageName(profile.stage)}</span><button class="avatar" data-action="profile" aria-label="ჩემი პროფილი">${escape(profile.name.slice(0, 1))}</button></div></header><nav class="mobile-nav" aria-label="მობილური ნავიგაცია"><button data-action="dashboard">${icon('grid')} ჩემი დღე</button><button data-action="all-reminders">${icon('bell')} შეხსენებები</button><button data-action="lessons">${icon('play')} ვიდეოები</button><button data-action="pro">${icon('spark')} Pro</button><button data-action="profile">${icon('user')} პროფილი</button></nav><main class="dashboard-main" id="main">${demo ? '<div class="demo-banner"><span>ეს არის დემო სივრცე — ცვლილებები არ შეინახება.</span><button data-action="register">შექმენი შენი სივრცე →</button></div>' : ''}${view === 'profile' ? profileView() : view === 'pro' ? proView() : view === 'planner' ? plannerView() : view === 'lessons' ? lessonsView() : `<div class="dashboard-title"><div><span class="eyebrow">დღის დასაწყისი შენია</span><h1>გამარჯობა, ${escape(profile.name)} <span>♡</span></h1><p>მოდი, დღესაც პატარა ნაბიჯებით წავიდეთ.</p></div><button class="button" data-action="add-reminder">${icon('plus')} ახალი შეხსენება</button></div><section class="welcome-panel ${profile.stage === 'mother' ? 'mother-panel' : ''}"><div><span class="tag">${icon('spark')} ${profile.stage === 'pregnant' ? 'პატარას მოლოდინში' : 'ახალი დღე, ერთად'}</span><h2>${profile.stage === 'pregnant' ? 'შენი ყველაზე თბილი<br>მოლოდინის დღეები.' : 'პატარა ჩახუტებები.<br>დიდი ახალი ამბავი.'}</h2><p>${profile.stage === 'pregnant' ? 'იყავი საკუთარ თავთან ისეთივე ნაზი, როგორც შენს პატარასთან.' : 'ახალ რიტმს ნელ-ნელა იპოვი. საკუთარ თავსაც მოუსმინე.'}</p><span class="date-caption">${icon('calendar')} ${profile.stage === 'pregnant' ? 'პატარას ველოდებით:' : 'პატარას დაბადების დღე:'} ${formatDate(profile.referenceDate, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div><div class="welcome-art" aria-hidden="true"><span>♡</span><i>✧</i><small>შენ შესანიშნავად<br>ართმევ თავს</small></div></section><div class="dashboard-grid"><section class="reminders-panel"><div class="row-between panel-title"><div><span class="eyebrow">ცოტა მეტი სიმსუბუქე</span><h2>შენი შეხსენებები</h2></div>${icon('bell', 'pink')}</div><div class="tabs" role="group" aria-label="შეხსენებების ფილტრი">${[['today', 'დღეს'], ['all', 'ყველა'], ['personal', 'პირადი'], ['suggested', 'შეთავაზებული']].map(([key, name]) => `<button data-action="filter" data-filter="${key}" aria-pressed="${filter === key}" class="${filter === key ? 'selected' : ''}">${name}</button>`).join('')}</div><div class="reminders-list">${shown.length ? shown.map(reminderRow).join('') : `<div class="empty-state">${icon('leaf')}<h3>${filter === 'today' ? 'დღეს თავისუფალი სივრცე გაქვს' : 'აქ შენი გეგმები გამოჩნდება'}</h3><p>დაამატე შეხსენება და მნიშვნელოვანი ამბები ერთ ადგილას მოაგროვე.</p><button class="text-button" data-action="add-reminder">${icon('plus')} შეხსენების დამატება</button></div>`}</div><button class="add-reminder-inline" data-action="add-reminder">${icon('plus')} კიდევ ერთი პატარა გეგმა</button></section><aside class="day-aside"><section class="day-progress"><span class="eyebrow">შენი დღევანდელი ნაბიჯები</span><div class="progress-ring" style="--progress:${today.length ? (done / today.length) * 100 : 0}%"><div><strong>${done}<small> / ${today.length}</small></strong><span>შესრულებულია</span></div></div><h3>შენი ტემპი საკმარისია ♡</h3><p>ყველაფრის ერთ დღეში<br>მოსწრება საჭირო არ არის.</p></section><section class="tip-card">${icon('spark')}<h3>სივრცე შენთან ერთად იცვლება</h3><p>შეცვალე შენი ეტაპი პროფილიდან და მიიღე შესაბამისი შეხსენებები.</p><button class="text-button" data-action="profile">ჩემი პროფილი ${icon('arrow')}</button></section></aside></div>`}<p class="local-notice">${icon('heart')} შენი პირადი საცდელი სივრცე · მონაცემები ინახება მხოლოდ ამ ბრაუზერში · შეხსენებები ჩანს საიტზე</p></main></div></div>`;
 }
 
 function currentLessons() {
@@ -187,16 +193,68 @@ function watchLesson(id) {
   dialog.classList.add('video-dialog');
 }
 
+function proView() {
+  const status = trialStatus(data.pro);
+  return `<div class="pro-heading"><span class="pro-label">${icon('spark')} DEDIKO PRO</span><h1>ცოტა მეტი სივრცე.<br><span>შენი მშვიდი ყოველდღიურობისთვის.</span></h1><p>შენი კვირის გეგმა, პირადი ჩანაწერები და მნიშვნელოვანი ამბები — ერთად.</p></div>
+    <div class="pro-demo-notice">${icon('spark')}<p>Pro-ს საცდელი ვერსია · რეალური გადახდა ჯერ არ არის ჩართული. საცდელი პერიოდი ავტომატურად ფასიან გამოწერად არ გადაიქცევა.</p></div>
+    ${status.active ? `<section class="pro-active"><div><strong>შენი Pro საცდელი სივრცე აქტიურია ♡</strong><p>დარჩენილია ${status.daysLeft} დღე · დასრულება: ${formatDate(localDate(new Date(data.pro.endsAt)))}</p></div><button class="button" data-action="planner">გახსენი ჩემი გეგმა ${icon('arrow')}</button></section>` : ''}
+    <div class="pricing-grid"><article class="price-card"><span class="eyebrow">ყოველდღიური თანამგზავრი</span><h2>Dediko Free</h2><div class="price-amount">0 ₾ <span>/ უფასოდ</span></div><p>ძირითადი სივრცე შენთვის და პატარასთვის.</p><ul><li>${icon('check')} პირადი და შეთავაზებული შეხსენებები</li><li>${icon('check')} ორსულისა და ახალბედა დედის რეჟიმები</li><li>${icon('check')} არსებული უფასო ვიდეობიბლიოთეკა</li><li>${icon('check')} პირადი ვიდეოები და ნახვის ისტორია</li></ul><button class="button price-free-button" data-action="${data.profile ? 'dashboard' : 'register'}">${data.profile ? 'ჩემი უფასო სივრცე' : 'დაიწყე უფასოდ'}</button></article>
+    <article class="price-card price-pro"><span class="price-ribbon">მეტი დრო შენთვის</span><span class="eyebrow">ყველაფერი Free-დან და მეტი</span><h2>Dediko Pro ${icon('spark')}</h2><div class="price-amount">${proPrice} ₾ <span>/ თვე</span></div><p>დაგეგმილი ფასი · პირველი 7 დღე საცდელად.</p><ul><li>${icon('check')} პერსონალური კვირის გეგმა</li><li>${icon('check')} ორივე ეტაპის გეგმის შაბლონები</li><li>${icon('check')} კვირის პირადი ჩანაწერები</li><li>${icon('check')} შეხსენებების კალენდარში ექსპორტი</li><li>${icon('check')} ვიდეოების სასწავლო მარშრუტი</li></ul>${status.active ? `<button class="button" data-action="planner">ჩემი Pro სივრცე ${icon('arrow')}</button>` : status.used ? '<button class="button" disabled>საცდელი პერიოდი დასრულებულია</button><p class="price-footnote">ფასიანი გამოწერის შეძენა მოგვიანებით დაემატება.</p>' : `<button class="button" data-action="start-pro-trial">გამოსცადე Pro — 7 დღე ${icon('spark')}</button><p class="price-footnote">ბარათის გარეშე · ავტომატური ჩამოჭრის გარეშე</p>`}</article></div>
+    <section class="pro-benefits"><article>${icon('calendar')}<h3>კვირა, შენი ტემპით</h3><p>დაგეგმე საქმეები და მონიშნე შესრულებული. შეინარჩუნე შენი გეგმები ეტაპის შეცვლის დროსაც.</p></article><article>${icon('leaf')}<h3>სივრცე საკუთარი ფიქრებისთვის</h3><p>ყოველ კვირას საკუთარი ჩანაწერი აქვს — იდეებისთვის, კითხვებისა და პატარა აღმოჩენებისთვის.</p></article><article>${icon('heart')}<h3>ყველაფერი შენს ხელშია</h3><p>ექსპორტი გაუკეთე შენს შეხსენებებს და დაამატე ისინი სასურველ კალენდარში.</p></article></section>
+    <section class="pro-faq"><h2>პატარა კითხვები, მარტივი პასუხები</h2><details><summary>შეხსენებები ფასიანი ხდება?</summary><p>ძირითადი შეხსენებები და არსებული ვიდეოები Free პაკეტში რჩება. Pro დამატებით დაგეგმვისა და ორგანიზების ხელსაწყოებს გაძლევს.</p></details><details><summary>7 დღის შემდეგ თანხა ჩამომეჭრება?</summary><p>საცდელი ვერსია თანხას არ ჩამოგაჭრის. ამ ეტაპზე ბარათის დამატება და ფასიანი გამოწერის შეძენა ჩართული არ არის.</p></details><details><summary>სად ინახება ჩემი გეგმა?</summary><p>ამ ვერსიაში გეგმები, ჩანაწერები და საცდელი სტატუსი მხოლოდ ამ ბრაუზერში ინახება. სხვა მოწყობილობაზე სინქრონიზაცია ჯერ არ არის ხელმისაწვდომი.</p></details></section>`;
+}
+
+function publicProPage() {
+  return `<header class="site-header wrap"><a class="brand" href="/" data-action="home">${logo()}</a><a class="text-button" href="/" data-action="home">მთავარი გვერდი ${icon('arrow')}</a></header><main class="wrap public-pro-main" id="main">${proView()}</main><footer class="footer wrap">${logo()}<p>შენთან, დედობის ყოველ ნაბიჯზე.</p><span>© ${new Date().getFullYear()} Dediko</span></footer>`;
+}
+
+function requirePro() {
+  if (trialStatus(data.pro).active) return true;
+  view = 'pro'; render(); window.scrollTo(0, 0); toast('ეს ფუნქცია Pro სივრცეშია — გაეცანი საცდელ პაკეტს.'); return false;
+}
+
+function plannerView() {
+  if (!trialStatus(data.pro).active) return proView();
+  const tasks = data.plannerTasks.filter(task => task.stage === data.profile.stage && task.week === plannerWeek).sort((a, b) => a.date.localeCompare(b.date));
+  const completed = tasks.filter(task => task.done).length;
+  const noteKey = `${data.profile.stage}-${plannerWeek}`;
+  return `<div class="dashboard-title"><div><span class="pro-label">${icon('spark')} DEDIKO PRO · საცდელი</span><h1>შენი მშვიდი კვირა <span>♡</span></h1><p>პატარა გეგმები, მეტი თავისუფალი სივრცე.</p></div><button class="button" data-action="export-calendar">${icon('calendar')} კალენდარში ექსპორტი</button></div>
+    <div class="planner-status"><span>${stageName(data.profile.stage)} · საცდელად დარჩა ${trialStatus(data.pro).daysLeft} დღე</span><button class="text-button" data-action="pro">პაკეტის ნახვა ${icon('arrow')}</button></div>
+    <section class="weekly-panel"><div class="week-heading"><div class="week-navigation"><button class="icon-button" data-action="previous-week" aria-label="წინა კვირა">←</button><h2>${formatDate(plannerWeek)} — ${formatDate(shiftDate(plannerWeek, 6), {year:'numeric'})}</h2><button class="icon-button" data-action="next-week" aria-label="შემდეგი კვირა">→</button></div><button class="text-button" data-action="current-week">მიმდინარე კვირა</button></div><div class="week-summary"><span>${completed} / ${tasks.length} გეგმა შესრულებულია</span><div><button class="text-button" data-action="apply-week-template">${icon('spark')} კვირის შაბლონი</button><button class="button button-small" data-action="add-planner-task">${icon('plus')} ახალი გეგმა</button></div></div><div class="planner-tasks">${tasks.length ? tasks.map(task => `<article class="planner-task ${task.done ? 'task-done' : ''}"><button class="complete-button ${task.done ? 'checked' : ''}" aria-pressed="${Boolean(task.done)}" aria-label="${escape(task.title)} — შესრულების შეცვლა" data-action="toggle-planner-task" data-id="${escape(task.id)}">${task.done ? icon('check') : ''}</button><div><strong>${escape(task.title)}</strong><span>${formatDate(task.date, {weekday:'long'})}</span></div><button class="icon-button" data-action="edit-planner-task" data-id="${escape(task.id)}" aria-label="გეგმის რედაქტირება: ${escape(task.title)}">${icon('edit')}</button></article>`).join('') : `<div class="empty-state">${icon('calendar')}<h3>შენი კვირის პირველი პატარა გეგმა</h3><p>აირჩიე შაბლონი ან დაამატე შენი საქმე.</p><button class="text-button" data-action="apply-week-template">კვირის შაბლონის დამატება ${icon('plus')}</button></div>`}</div></section>
+    <div class="planner-bottom"><section class="planner-note"><span class="eyebrow">მხოლოდ შენთვის</span><h2>კვირის პატარა ჩანაწერი</h2><form id="planner-notes-form"><label class="field"><span class="visually-hidden">კვირის ჩანაწერი</span><textarea name="note" rows="6" maxlength="2000" placeholder="რას გინდა დაუთმო დრო? რა კითხვები დაგიგროვდა?">${escape(data.plannerNotes[noteKey] || '')}</textarea></label><p>ჩანაწერი ამ კვირასა და შენს არჩეულ ეტაპს ეკუთვნის.</p><button type="submit" class="button button-small">ჩანაწერის შენახვა ${icon('check')}</button></form></section><section class="learning-path"><span class="eyebrow">ისწავლე შენი ტემპით</span><h2>შენი სასწავლო მარშრუტი</h2>${currentLessons().filter(lesson => !lesson.personal).map((lesson, index) => `<button class="learning-path-item" data-action="watch-lesson" data-id="${escape(lesson.id)}"><span>${data.completedLessons.includes(lesson.id) ? icon('check') : String(index + 1).padStart(2, '0')}</span><strong>${escape(lesson.title)}</strong>${icon('play')}</button>`).join('')}<p>ეს ვიდეოები უფასო ბიბლიოთეკაშიც ხელმისაწვდომია.</p></section></div><button class="delete-button" data-action="end-pro-trial">Pro-ს საცდელი რეჟიმის დასრულება</button>`;
+}
+
+function plannerTaskDialog(id) {
+  if (!requirePro()) return;
+  const task = data.plannerTasks.find(item => item.id === id && item.stage === data.profile.stage);
+  openDialog(`<div class="dialog-symbol">${icon('calendar')}</div><h2 id="dialog-title">${task ? 'გეგმის რედაქტირება' : 'შენი კვირის ახალი გეგმა'}</h2><p class="dialog-intro">ერთი პატარა ნაბიჯი შენი ყოველდღიურობისთვის.</p><form id="planner-task-form" data-id="${escape(id || '')}"><label class="field">რა გინდა დაგეგმო?<input name="title" required maxlength="120" value="${escape(task?.title || '')}" placeholder="მაგ. მოვამზადო კითხვები ვიზიტისთვის"></label><label class="field">თარიღი<input type="date" name="date" required min="${plannerWeek}" max="${shiftDate(plannerWeek, 6)}" value="${escape(task?.date || (localDate() >= plannerWeek && localDate() <= shiftDate(plannerWeek, 6) ? localDate() : plannerWeek))}"></label><div class="form-error" role="alert"></div><button class="button full-width" type="submit">შენახვა ${icon('check')}</button>${task ? `<button type="button" class="delete-button" data-action="delete-planner-task" data-id="${escape(task.id)}">გეგმის წაშლა</button>` : ''}</form>`);
+}
+
+function submitPlanner(form, values) {
+  if (!requirePro()) { dialog.close(); return; }
+  if (form.id === 'planner-notes-form') {
+    data.plannerNotes[`${data.profile.stage}-${plannerWeek}`] = values.note.slice(0, 2000);
+    save(); toast('შენი კვირის ჩანაწერი შენახულია ♡'); return;
+  }
+  if (!values.title.trim() || weekStart(values.date) !== plannerWeek) { form.querySelector('.form-error').textContent = 'მიუთითე სათაური და ამ კვირის თარიღი.'; return; }
+  const existing = data.plannerTasks.find(task => task.id === form.dataset.id && task.stage === data.profile.stage);
+  if (existing) Object.assign(existing, {title:values.title.trim(),date:values.date});
+  else data.plannerTasks.push({id:crypto.randomUUID(),title:values.title.trim(),date:values.date,week:plannerWeek,stage:data.profile.stage,done:false});
+  save(); dialog.close(); render(); toast('გეგმა შენახულია');
+}
+
 function profileFields(profile) {
   return `<label class="field">შენი სახელი<input name="name" type="text" maxlength="40" autocomplete="given-name" value="${escape(profile?.name || '')}" placeholder="როგორ მოგმართოთ?" required></label><fieldset class="stage-fieldset"><legend>დედობის რომელ ეტაპზე ხარ?</legend>${stageChoices(profile?.stage || 'pregnant')}</fieldset><label class="field"><span id="date-label">${profile?.stage === 'mother' ? 'პატარას დაბადების თარიღი' : 'მშობიარობის მოსალოდნელი თარიღი'}</span><input type="date" name="referenceDate" value="${escape(profile?.referenceDate || '')}" ${profile?.stage === 'mother' ? `max="${localDate()}"` : `min="${localDate()}"`} required></label>`;
 }
 function profileView() {
-  return `<div class="dashboard-title"><div><span class="eyebrow">ყველაფერი შენზე მორგებული</span><h1>ჩემი პროფილი <span>♡</span></h1><p>შენი ამბავი იცვლება — შენი სივრცეც იცვლება.</p></div></div><section class="profile-panel"><div class="profile-heading"><span class="avatar">${escape(data.profile.name.slice(0, 1))}</span><div><h2>შენი ინფორმაცია</h2><p>სტატუსის შეცვლისას პირადი შეხსენებები შენარჩუნდება.</p></div></div><form id="profile-form">${profileFields(data.profile)}<p class="form-note">ახალ ეტაპზე გადასვლისას შესაბამის შეთავაზებულ შეხსენებებს დაინახავ. ძველი ეტაპის შეთავაზებები შეინახება და დროებით დაიმალება.</p><div class="form-error" role="alert"></div><button class="button" type="submit">ცვლილებების შენახვა ${icon('check')}</button></form><button class="delete-button" data-action="reset-profile">ლოკალური პროფილის გასუფთავება</button></section>`;
+  return `<div class="dashboard-title"><div><span class="eyebrow">ყველაფერი შენზე მორგებული</span><h1>ჩემი პროფილი <span>♡</span></h1><p>შენი ამბავი იცვლება — შენი სივრცეც იცვლება.</p></div></div><section class="profile-panel"><div class="profile-heading"><span class="avatar">${escape(data.profile.name.slice(0, 1))}</span><div><h2>შენი ინფორმაცია</h2><p>სტატუსის შეცვლისას პირადი შეხსენებები შენარჩუნდება.</p></div></div><form id="profile-form">${profileFields(data.profile)}<p class="form-note">ახალ ეტაპზე გადასვლისას შესაბამის შეთავაზებულ შეხსენებებს დაინახავ. ძველი ეტაპის შეთავაზებები შეინახება და დროებით დაიმალება.</p><div class="form-error" role="alert"></div><button class="button" type="submit">ცვლილებების შენახვა ${icon('check')}</button></form><div class="profile-pro-card"><div><strong>Dediko ${trialStatus(data.pro).active ? 'Pro ✧' : 'Free'}</strong><p>${trialStatus(data.pro).active ? 'საცდელი პერიოდი · დარჩა ' + trialStatus(data.pro).daysLeft + ' დღე' : 'აღმოაჩინე მეტი შესაძლებლობა Pro-ში'}</p></div><button class="text-button" data-action="pro">პაკეტის ნახვა ${icon('arrow')}</button></div><button class="delete-button" data-action="reset-profile">ლოკალური პროფილის გასუფთავება</button></section>`;
 }
 
 function render() {
-  app.innerHTML = view === 'landing' ? landing() : dashboard();
-  document.title = `Dediko — ${view === 'landing' ? 'შენთან, დედობის ყოველ ნაბიჯზე' : view === 'profile' ? 'ჩემი პროფილი' : view === 'lessons' ? 'ვიდეოგაკვეთილები' : 'ჩემი დღე'}`;
+  renderedDate = localDate();
+  renderedProActive = trialStatus(data.pro).active;
+  app.innerHTML = view === 'landing' ? landing() : view === 'pro' && !data.profile ? publicProPage() : dashboard();
+  document.title = `Dediko — ${view === 'landing' ? 'შენთან, დედობის ყოველ ნაბიჯზე' : view === 'pro' ? 'Dediko Pro' : view === 'planner' ? 'ჩემი Pro გეგმა' : view === 'profile' ? 'ჩემი პროფილი' : view === 'lessons' ? 'ვიდეოგაკვეთილები' : 'ჩემი დღე'}`;
 }
 function openDialog(content) {
   dialog.classList.remove('video-dialog');
@@ -230,6 +288,37 @@ document.addEventListener('click', event => {
   if (!button) return;
   event.preventDefault();
   const { action, id } = button.dataset;
+  if (action === 'pro') { view = 'pro'; history.replaceState(null, '', '?page=pro'); render(); window.scrollTo(0, 0); return; }
+  if (action === 'start-pro-trial') {
+    if (!data.profile || demo) { pendingProTrial = true; register(); return; }
+    data.pro = startProTrial(data.pro); save(); view = trialStatus(data.pro).active ? 'planner' : 'pro'; render(); window.scrollTo(0, 0); return;
+  }
+  if (action === 'planner') { if (!requirePro()) return; view = 'planner'; render(); window.scrollTo(0, 0); return; }
+  if (['previous-week', 'next-week', 'current-week', 'apply-week-template', 'add-planner-task', 'edit-planner-task', 'toggle-planner-task', 'delete-planner-task', 'export-calendar', 'end-pro-trial', 'confirm-end-pro'].includes(action)) {
+    if (!requirePro()) return;
+    if (action === 'previous-week') plannerWeek = shiftDate(plannerWeek, -7);
+    if (action === 'next-week') plannerWeek = shiftDate(plannerWeek, 7);
+    if (action === 'current-week') plannerWeek = weekStart();
+    if (action === 'add-planner-task' || action === 'edit-planner-task') return plannerTaskDialog(id);
+    if (action === 'apply-week-template') {
+      const additions = weeklyTemplate(data.profile.stage, plannerWeek).filter(task => !data.plannerTasks.some(existing => existing.id === task.id));
+      data.plannerTasks.push(...additions); save(); toast(additions.length ? 'კვირის შაბლონი დაემატა — მოირგე შენი სურვილით ♡' : 'ამ კვირის შაბლონი უკვე დამატებულია.');
+    }
+    if (action === 'toggle-planner-task') {
+      const task = data.plannerTasks.find(item => item.id === id && item.stage === data.profile.stage);
+      if (task) { task.done = !task.done; save(); }
+    }
+    if (action === 'delete-planner-task') { data.plannerTasks = data.plannerTasks.filter(task => task.id !== id || task.stage !== data.profile.stage); save(); dialog.close(); }
+    if (action === 'export-calendar') {
+      if (!currentReminders().some(reminder => reminder.enabled)) { toast('ექსპორტისთვის ჯერ ჩართე ან დაამატე შეხსენება.'); return; }
+      const url = URL.createObjectURL(new Blob([remindersToCalendar(currentReminders())], {type:'text/calendar;charset=utf-8'}));
+      const link = document.createElement('a'); link.href = url; link.download = 'dediko-reminders.ics'; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast('კალენდრის ფაილი მზადაა — გახსენი შენს კალენდარში.'); return;
+    }
+    if (action === 'end-pro-trial') return openDialog(`<h2 id="dialog-title">დაასრულებ Pro-ს საცდელ რეჟიმს?</h2><p class="dialog-intro">გეგმები და ჩანაწერები შენახული დარჩება. ამ ბრაუზერში 7-დღიანი პერიოდის თავიდან ჩართვა აღარ იქნება შესაძლებელი.</p><button class="button full-width" data-action="confirm-end-pro">დიახ, დავასრულო საცდელი რეჟიმი</button><button class="delete-button" data-action="close-dialog">გაგრძელება</button>`);
+    if (action === 'confirm-end-pro') { data.pro.cancelled = true; save(); dialog.close(); view = 'pro'; }
+    render(); return;
+  }
   if (action.startsWith('register')) return register(action === 'register-mother' ? 'mother' : 'pregnant');
   if (action === 'close-dialog') return dialog.close();
   if (action === 'demo') return startDemo();
@@ -261,7 +350,7 @@ document.addEventListener('click', event => {
     if (!demo) { try { localStorage.removeItem(storageKey); } catch { toast('ბრაუზერში მონაცემების გასუფთავება ვერ მოხერხდა.'); return; } }
     demo = false; data = load(); view = data.profile ? 'dashboard' : 'landing'; dialog.close(); render(); window.scrollTo(0, 0); return;
   }
-  if (action === 'home') { view = 'landing'; render(); window.scrollTo(0, 0); }
+  if (action === 'home') { view = 'landing'; history.replaceState(null, '', location.pathname); render(); window.scrollTo(0, 0); }
   if (action === 'exit-demo') { demo = false; data = load(); view = 'landing'; render(); window.scrollTo(0, 0); }
   if (['dashboard', 'profile', 'all-reminders'].includes(action)) {
     view = action === 'profile' ? 'profile' : 'dashboard';
@@ -299,10 +388,11 @@ document.addEventListener('change', event => {
 
 document.addEventListener('submit', event => {
   const form = event.target;
-  if (!['register-form', 'profile-form', 'reminder-form', 'lesson-form'].includes(form.id)) return;
+  if (!['register-form', 'profile-form', 'reminder-form', 'lesson-form', 'planner-task-form', 'planner-notes-form'].includes(form.id)) return;
   event.preventDefault();
   const values = Object.fromEntries(new FormData(form));
   const error = form.querySelector('.form-error');
+  if (form.id.startsWith('planner-')) return submitPlanner(form, values);
   if (form.id === 'lesson-form') return submitLesson(form, values);
   if (form.id === 'register-form' || form.id === 'profile-form') {
     if (!values.name.trim()) { error.textContent = 'გთხოვ, მიუთითე შენი სახელი.'; return; }
@@ -311,9 +401,11 @@ document.addEventListener('submit', event => {
     if (invalidDate) { error.textContent = 'გთხოვ, გადაამოწმე არჩეული თარიღი.'; return; }
     if (form.id === 'register-form') { demo = false; data = emptyData(); }
     data.profile = { name: values.name.trim(), stage: values.stage, referenceDate: values.referenceDate };
-    ensureSuggestions(); save();
+    ensureSuggestions();
+    if (form.id === 'register-form' && pendingProTrial) { data.pro = startProTrial(data.pro); }
+    save();
     if (dialog.open) dialog.close();
-    view = form.id === 'profile-form' ? 'profile' : 'dashboard'; filter = 'today'; lessonFilter = 'all'; lessonSearch = ''; render();
+    view = form.id === 'profile-form' ? 'profile' : pendingProTrial ? 'planner' : 'dashboard'; pendingProTrial = false; filter = 'today'; lessonFilter = 'all'; lessonSearch = ''; render();
     toast(form.id === 'profile-form' ? 'პროფილი განახლდა — სივრცე შენს ეტაპს მოერგო ♡' : 'კეთილი იყოს შენი მობრძანება Dediko-ში ♡');
   } else {
     if (!values.title.trim()) { error.textContent = 'შეხსენებას სათაური სჭირდება.'; return; }
@@ -334,9 +426,15 @@ dialog.addEventListener('close', () => {
   // Removing the frame also stops playback when the user dismisses with Escape.
   dialog.querySelector('iframe')?.remove();
   dialog.classList.remove('video-dialog');
+  pendingProTrial = false;
 });
 dialog.addEventListener('click', event => { if (event.target === dialog) { const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close(); } });
 // Keep recurring reminders and the date current when an open tab crosses midnight.
-let renderedDate = localDate();
-setInterval(() => { if (renderedDate !== localDate()) { renderedDate = localDate(); if (!dialog.open && view === 'dashboard') render(); } }, 30000);
+setInterval(() => {
+  const active = trialStatus(data.pro).active;
+  if (!dialog.open && !document.activeElement?.closest('form') && (renderedProActive !== active || renderedDate !== localDate())) {
+    renderedProActive = active; renderedDate = localDate();
+    if (['dashboard', 'pro', 'planner'].includes(view)) render();
+  }
+}, 30000);
 render();

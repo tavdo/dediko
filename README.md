@@ -46,6 +46,16 @@ To publish a Georgian-language or other shared lesson for everyone, add its titl
 
 Only explicit YouTube/Vimeo video URLs can generate iframe sources. YouTube uses its privacy-enhanced player, Vimeo uses `dnt=1`, and the player loads after a user chooses a lesson. Closing the dialog removes the iframe to stop playback. A direct video link remains available if a provider disables embedding or the network blocks playback. Existing profiles migrate without discarding reminders.
 
+## Dediko Pro demo
+
+Open `/?page=pro` for the public package comparison. Free keeps all existing reminders and videos. Pro's proposed price is **19 GEL per month**, displayed as a planned price, not an available paid offer.
+
+The current implementation offers a **seven-day browser-local demo trial** without a card, billing, automatic renewal or real subscription. It includes stage-specific weekly planner templates, custom editable tasks, completion tracking, weekly notes, a lesson learning path, and `.ics` calendar export of enabled reminders. The calendar file uses floating local times, daily/weekly recurrence, UTF-8 line folding and escaped text; importing it is a snapshot, not ongoing calendar synchronization.
+
+The trial and planner are preserved across reloads. Stage changes retain both sets of tasks and notes. Completing or cancelling the trial preserves the data and closes Pro actions; it cannot be restarted within the retained local profile. This is a prototype convenience gate, **not secure subscription authorization**. Clearing browser storage resets it.
+
+Before paid launch, implement authenticated accounts and server-side storage, a payment-provider checkout, verified payment webhooks, server-side entitlement checks, and actual subscription cancellation/refund handling. No paid customers or payment details are collected by this version.
+
 ## Scope
 
 This is a local prototype, not an authenticated multi-user service. There is no backend, password login, cross-device sync, email, push, or background notification delivery. Reminders are displayed in the site. Suggested reminders concern general organization and self-care; they are not clinical schedules or medical advice. Medical appointments are entered by the user.
