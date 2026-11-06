@@ -13,7 +13,7 @@ const server = http.createServer(async (req, res) => {
       const response=await createIdeasHandler(localIdeasStore)(request);
       res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));return;
     }
-    if(!['/','/index.html','/styles.css','/lessons.css','/pro.css','/ideas.css','/app.js','/model.js','/lessons.js','/pro.js','/ideas.js'].includes(path)&&!path.startsWith('/assets/')){res.writeHead(404);res.end('Not found');return;}
+    if(!['/','/index.html','/styles.css','/lessons.css','/pro.css','/ideas.css','/team.css','/app.js','/model.js','/lessons.js','/pro.js','/ideas.js'].includes(path)&&!path.startsWith('/assets/')){res.writeHead(404);res.end('Not found');return;}
     const file = resolve(root, '.' + (path === '/' ? '/index.html' : path));
     if (!file.startsWith(root + sep)) { res.writeHead(403); res.end(); return; }
     const body = await readFile(file);

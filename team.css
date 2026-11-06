@@ -1,0 +1,24 @@
+.team-section{padding-top:70px;padding-bottom:65px;scroll-margin-top:30px}
+.team-section .section-heading{align-items:center;margin-bottom:32px}
+.team-section .section-heading>p{max-width:330px}
+.team-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px}
+.team-card{background:#fff;border:1px solid #eee4f0;border-radius:22px;overflow:hidden}
+.team-portrait{position:relative;aspect-ratio:6/5;overflow:hidden;background:#ded7d6}
+.team-portrait img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 30%}
+.team-portrait::after{content:'';position:absolute;inset:60% 0 0;background:linear-gradient(transparent,#39303e20);pointer-events:none}
+.team-role-marker{position:absolute;bottom:18px;left:20px;z-index:1;display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid #fff9;border-radius:20px;background:#fffef7eb;color:#9e648e;font-size:9px;backdrop-filter:blur(7px)}
+.team-role-marker .icon{width:13px;height:13px}
+.team-card-developer .team-role-marker{color:#6984bb;background:#f5f7ffed}
+.team-card-content{padding:25px 28px 29px}
+.team-name-row{display:flex;align-items:center;justify-content:space-between;gap:15px}
+.team-name-row h3{font-size:24px;font-weight:700;letter-spacing:-.4px}
+.team-name-row>span{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#fceef7;color:#d195bd}
+.team-name-row>span .icon{width:16px;height:16px}
+.team-card-developer .team-name-row>span{background:#eef2ff;color:#94a8d8}
+.team-role{display:block;color:var(--pink-dark);font-size:11px;font-weight:500;line-height:1.9;margin-top:6px}
+.team-card-developer .team-role{color:var(--blue-dark)}
+.team-card-content>p{font-size:11px;line-height:2;color:var(--muted);margin-top:15px;max-width:370px}
+.team-footer-link{font-size:10px;color:#94809f;white-space:nowrap}
+.team-footer-link:hover{color:var(--pink-dark)}
+@media(max-width:850px){.team-section{padding-top:50px;padding-bottom:45px}.team-grid{gap:20px}.team-card-content{padding:23px}.team-name-row h3{font-size:22px}.team-card-content>p{font-size:10px}.team-role{font-size:10px}}
+@media(max-width:640px){.team-section{padding-top:40px;padding-bottom:40px;scroll-margin-top:15px}.team-grid{grid-template-columns:1fr;gap:22px}.team-section .section-heading{margin-bottom:25px}.team-card{border-radius:19px}.team-card-content{padding:24px}.team-name-row h3{font-size:25px}.team-role{font-size:11px}.team-card-content>p{font-size:11px}.team-role-marker{left:17px;bottom:16px;font-size:8px}.team-footer-link{font-size:9px}}
