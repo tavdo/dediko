@@ -28,6 +28,7 @@ Run `npm run build` locally to generate the same static output. Only runtime fil
 ## Implemented
 
 - Responsive landing page with the original supplied logo.
+- Floating glass pill navigation on mobile, with four primary controls and a bottom-sheet menu for the remaining destinations. Uses safe-area insets, hides during dialogs/text entry, and reserves page/toast space above the dock.
 - Local onboarding: name, pregnancy/new mother stage, expected due date or baby's birth date.
 - Stage-specific suggested reminders; optional switches, editable time, date and recurrence.
 - Personal reminders with categories, daily/weekly/one-time recurrence, editing, deletion and completion per occurrence.

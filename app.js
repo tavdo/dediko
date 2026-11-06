@@ -24,6 +24,7 @@ const icons = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   play: '<rect x="3" y="4" width="18" height="16" rx="4"/><path d="m10 8 6 4-6 4V8Z"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   logout: '<path d="M9 4H4v16h5m5-12 4 4-4 4m-6-4h14"/>'
 };
 const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.heart}</svg>`;
@@ -318,14 +319,37 @@ function profileView() {
   return `<div class="dashboard-title"><div><span class="eyebrow">ყველაფერი შენზე მორგებული</span><h1>ჩემი პროფილი <span>♡</span></h1><p>შენი ამბავი იცვლება — შენი სივრცეც იცვლება.</p></div></div><section class="profile-panel"><div class="profile-heading"><span class="avatar">${escape(data.profile.name.slice(0, 1))}</span><div><h2>შენი ინფორმაცია</h2><p>სტატუსის შეცვლისას პირადი შეხსენებები შენარჩუნდება.</p></div></div><form id="profile-form">${profileFields(data.profile)}<p class="form-note">ახალ ეტაპზე გადასვლისას შესაბამის შეთავაზებულ შეხსენებებს დაინახავ. ძველი ეტაპის შეთავაზებები შეინახება და დროებით დაიმალება.</p><div class="form-error" role="alert"></div><button class="button" type="submit">ცვლილებების შენახვა ${icon('check')}</button></form><div class="profile-pro-card"><div><strong>Dediko ${trialStatus(data.pro).active ? 'Pro ✧' : 'Free'}</strong><p>${trialStatus(data.pro).active ? 'საცდელი პერიოდი · დარჩა ' + trialStatus(data.pro).daysLeft + ' დღე' : 'აღმოაჩინე მეტი შესაძლებლობა Pro-ში'}</p></div><button class="text-button" data-action="pro">პაკეტის ნახვა ${icon('arrow')}</button></div><button class="delete-button" data-action="reset-profile">ლოკალური პროფილის გასუფთავება</button></section>`;
 }
 
+function mobileGlassNav() {
+  const items=[
+    {action:'home',label:'მთავარი',symbol:'grid',active:view==='landing'},
+    {action:'lessons',label:'ვიდეოები',symbol:'play',active:view==='lessons'},
+    {action:'ideas',label:'იდეები',symbol:'leaf',active:view==='ideas'},
+    {action:'dock-menu',label:'მენიუ',symbol:'menu',active:['dashboard','profile','pro','planner'].includes(view)}
+  ];
+  return `<nav class="mobile-glass-nav" aria-label="ქვედა ნავიგაცია">${items.map(item=>`<button type="button" class="glass-nav-item" data-action="${item.action}" ${item.active?'aria-current="page"':''} ${item.action==='dock-menu'?'aria-haspopup="dialog" aria-controls="form-dialog"':''}>${icon(item.symbol)}<span>${item.label}</span></button>`).join('')}</nav>`;
+}
+function openMobileMenu() {
+  const items=[
+    {action:'home',title:'მთავარი გვერდი',symbol:'grid'},
+    {action:'dashboard',title:'ჩემი დღე',symbol:'heart'},
+    {action:'all-reminders',title:'შეხსენებები',symbol:'bell'},
+    {action:'lessons',title:'ვიდეოგაკვეთილები',symbol:'play'},
+    {action:'ideas',title:'იდეები Dediko-სთვის',symbol:'leaf'},
+    {action:'pro',title:'Dediko Pro',symbol:'spark'},
+    {action:'team',title:'ჩვენი გუნდი',symbol:'user'},
+    {action:data.profile&&!demo?'profile':'register',title:data.profile&&!demo?'ჩემი პროფილი':'შექმენი შენი სივრცე',symbol:'user'}
+  ];
+  openDialog(`<span class="eyebrow">შენთან, დედობის ყოველ ნაბიჯზე</span><h2 id="dialog-title">შენი Dediko <span class="pink">♡</span></h2><div class="dock-menu-links">${items.map(item=>`<button type="button" data-action="dock-navigate" data-destination="${item.action}">${icon(item.symbol)}<span>${item.title}</span>${icon('arrow')}</button>`).join('')}</div>`);
+  dialog.classList.add('dock-menu-dialog');
+}
 function render() {
   renderedDate = localDate();
   renderedProActive = trialStatus(data.pro).active;
-  app.innerHTML = view === 'landing' ? landing() : view === 'pro' && !data.profile ? publicProPage() : view === 'ideas' && !data.profile ? publicIdeasPage() : dashboard();
+  app.innerHTML = (view === 'landing' ? landing() : view === 'pro' && !data.profile ? publicProPage() : view === 'ideas' && !data.profile ? publicIdeasPage() : dashboard()) + mobileGlassNav();
   document.title = `Dediko — ${view === 'landing' ? 'შენთან, დედობის ყოველ ნაბიჯზე' : view === 'ideas' ? 'იდეები Dediko-სთვის' : view === 'pro' ? 'Dediko Pro' : view === 'planner' ? 'ჩემი Pro გეგმა' : view === 'profile' ? 'ჩემი პროფილი' : view === 'lessons' ? 'ვიდეოგაკვეთილები' : 'ჩემი დღე'}`;
 }
 function openDialog(content) {
-  dialog.classList.remove('video-dialog');
+  dialog.classList.remove('video-dialog', 'dock-menu-dialog');
   dialog.innerHTML = `<button class="dialog-close icon-button" data-action="close-dialog" aria-label="დახურვა">${icon('close')}</button>${content}`;
   dialog.showModal();
 }
@@ -355,7 +379,17 @@ document.addEventListener('click', event => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
   event.preventDefault();
-  const { action, id } = button.dataset;
+  let { action } = button.dataset;
+  const { id } = button.dataset;
+  if(action==='dock-menu'){openMobileMenu();return;}
+  if(action==='dock-navigate'){
+    action=button.dataset.destination;
+    dialog.close();
+    if(action==='team'){
+      view='landing';history.replaceState(null,'',location.pathname+'#team');render();document.querySelector('#team')?.scrollIntoView();return;
+    }
+    if(['dashboard','all-reminders'].includes(action)&&!data.profile)startDemo();
+  }
   if(action==='ideas'){view='ideas';history.replaceState(null,'','?page=ideas');render();window.scrollTo(0,0);loadIdeas();return;}
   if(action==='refresh-ideas'){loadIdeas();return;}
   if(action==='new-idea'){newIdeaDialog();return;}
@@ -507,6 +541,7 @@ dialog.addEventListener('close', () => {
   // Removing the frame also stops playback when the user dismisses with Escape.
   dialog.querySelector('iframe')?.remove();
   dialog.classList.remove('video-dialog');
+  dialog.classList.remove('dock-menu-dialog');
   pendingProTrial = false;
 });
 dialog.addEventListener('click', event => { if (event.target === dialog) { const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close(); } });
