@@ -1,7 +1,8 @@
-import { localDate, nextOccurrence, completionKey, suggestedReminders } from './model.js';
+import { localDate as browserLocalDate, nextOccurrence, completionKey, suggestedReminders } from './model.js';
 import { parseVideoUrl, lessonsForStage, lessonCategories, migrateLessonState } from './lessons.js';
 import { proPrice, trialStatus, startProTrial, weekStart, shiftDate, weeklyTemplate, migrateProState, remindersToCalendar } from './pro.js';
 import { ideaCategories, ideaStatuses, filterIdeas, validateIdea } from './ideas.js';
+import { accountRequest, authCall, setAccountOwner, browserZone, pushSupport, currentSubscription, enablePush, disablePush, serviceWorkerReady } from './account-client.js';
 
 const app = document.querySelector('#app');
 const dialog = document.querySelector('#form-dialog');
@@ -31,10 +32,13 @@ const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" f
 const logo = () => '<img class="brand-image" src="assets/dediko-logo.jpg" alt="DediKo — დედასა და ბავშვზე ზრუნვა" width="210" height="74">';
 const emptyData = () => ({ version: 1, profile: null, reminders: [], lessons: [], completedLessons: [], pro: null, plannerTasks: [], plannerNotes: {} });
 let data = load();
+const account = { ready:false, user:null, revision:0, timezone:browserZone(), status:'loading', dirty:false, conflict:false, generation:0, config:null, subscribed:false, pushBusy:false };
+const localDate = (now = new Date()) => account.user ? new Intl.DateTimeFormat('en-CA', { timeZone:account.timezone, year:'numeric',month:'2-digit',day:'2-digit' }).format(now) : browserLocalDate(now);
 const requestedPage = new URLSearchParams(location.search).get('page');
 let view = ['pro','ideas'].includes(requestedPage) ? requestedPage : location.hash === '#team' ? 'landing' : data.profile ? 'dashboard' : 'landing';
 let filter = 'today';
 let demo = false;
+let beforeDemoData = null;
 let toastTimer;
 let lessonFilter = 'all';
 let lessonSearch = '';
@@ -55,6 +59,7 @@ function load() {
 }
 function save() {
   if (demo) return;
+  if (account.user) { queueCloudSave(); return; }
   try { localStorage.setItem(storageKey, JSON.stringify(data)); }
   catch { toast('ბრაუზერმა შენახვა ვერ შეძლო. მონაცემები მხოლოდ ამ გვერდის დახურვამდე დარჩება.'); }
 }
@@ -98,24 +103,24 @@ function currentReminders() {
   return data.reminders.filter(r => !r.automatic || r.stage === data.profile.stage);
 }
 function isComplete(reminder) {
-  return reminder.completed.includes(completionKey(reminder));
+  return reminder.completed.includes(completionKey(reminder, localDate()));
 }
 function reminderRow(reminder) {
   const done = isComplete(reminder);
-  const date = nextOccurrence(reminder);
+  const date = nextOccurrence(reminder, localDate());
   const overdue = date < localDate() && !done;
   return `<article class="reminder-row ${done ? 'is-done' : ''} ${!reminder.enabled ? 'is-disabled' : ''}"><button class="complete-button ${done ? 'checked' : ''}" aria-label="${escape(reminder.title)} — ${done ? 'შესრულების გაუქმება' : 'შესრულებულად მონიშვნა'}" aria-pressed="${done}" data-action="complete" data-id="${escape(reminder.id)}">${done ? icon('check') : ''}</button><span class="category-icon ${reminder.category === 'baby' || reminder.category === 'visit' ? 'blue-bg' : ''}">${icon(categoryIcon(reminder.category))}</span><div class="reminder-description"><strong>${escape(reminder.title)}</strong><span>${categoryName(reminder.category)} <b>·</b> ${repeatName(reminder.repeat)} ${reminder.automatic ? '<i class="auto-label">შეთავაზებული</i>' : ''}</span></div><div class="reminder-date ${overdue ? 'overdue' : ''}"><strong>${escape(reminder.time)}</strong><small>${date === localDate() ? 'დღეს' : formatDate(date)}</small></div><button class="icon-button" aria-label="რედაქტირება: ${escape(reminder.title)}" data-action="edit-reminder" data-id="${escape(reminder.id)}">${icon('edit')}</button></article>`;
 }
 function dashboard() {
   const profile = data.profile;
   const reminders = currentReminders();
-  const today = reminders.filter(r => r.enabled && nextOccurrence(r) <= localDate());
+  const today = reminders.filter(r => r.enabled && nextOccurrence(r, localDate()) <= localDate());
   const done = today.filter(isComplete).length;
   let shown = filter === 'today' ? today : reminders;
   if (filter === 'personal') shown = reminders.filter(r => !r.automatic);
   if (filter === 'suggested') shown = reminders.filter(r => r.automatic);
-  shown = [...shown].sort((a, b) => Number(isComplete(a)) - Number(isComplete(b)) || `${nextOccurrence(a)}${a.time}`.localeCompare(`${nextOccurrence(b)}${b.time}`));
-  return `<div class="dashboard-shell"><aside class="sidebar"><a href="#" class="brand" data-action="home">${logo()}</a><div class="sidebar-label">შენი პირადი სივრცე</div><nav aria-label="პირადი სივრცე"><button class="sidebar-item ${view === 'dashboard' ? 'active' : ''}" data-action="dashboard">${icon('grid')} ჩემი დღე</button><button class="sidebar-item" data-action="all-reminders">${icon('bell')} შეხსენებები <span class="nav-count">${reminders.length}</span></button><button class="sidebar-item ${view === 'lessons' ? 'active' : ''}" data-action="lessons">${icon('play')} ვიდეოგაკვეთილები</button><button class="sidebar-item ${view === 'ideas' ? 'active' : ''}" data-action="ideas">${icon('leaf')} იდეები Dediko-სთვის</button><button class="sidebar-item pro-nav-link ${['pro', 'planner'].includes(view) ? 'active' : ''}" data-action="pro">${icon('spark')} Dediko Pro <span class="pro-mini">${trialStatus(data.pro).active ? 'აქტიური' : 'ახალი'}</span></button><button class="sidebar-item ${view === 'profile' ? 'active' : ''}" data-action="profile">${icon('user')} ჩემი პროფილი</button></nav><div class="sidebar-kind"><span>პატარა შეხსენება</span><div>♡</div><strong>საკუთარ თავზე ზრუნვაც<br>პატარაზე ზრუნვაა.</strong><p>შენც იმსახურებ შესვენებას.</p></div><button class="sidebar-item sidebar-bottom" data-action="${demo ? 'exit-demo' : 'home'}">${icon('logout')} ${demo ? 'დემოდან გასვლა' : 'მთავარი გვერდი'}</button></aside><div class="dashboard-content"><header class="dashboard-header"><div class="mobile-brand">${logo()}</div><span class="header-date">${formatDate(localDate(), { weekday: 'long', day: 'numeric', month: 'long' })}</span><div class="header-right">${trialStatus(data.pro).active ? '<button class="pro-header-badge" data-action="planner">✧ PRO</button>' : ''}<span class="stage-pill">${icon(profile.stage === 'pregnant' ? 'heart' : 'baby')}${stageName(profile.stage)}</span><button class="avatar" data-action="profile" aria-label="ჩემი პროფილი">${escape(profile.name.slice(0, 1))}</button></div></header><nav class="mobile-nav" aria-label="მობილური ნავიგაცია"><button data-action="dashboard">${icon('grid')} ჩემი დღე</button><button data-action="all-reminders">${icon('bell')} შეხსენებები</button><button data-action="lessons">${icon('play')} ვიდეოები</button><button data-action="ideas">${icon('leaf')} იდეები</button><button data-action="pro">${icon('spark')} Pro</button><button data-action="profile">${icon('user')} პროფილი</button></nav><main class="dashboard-main" id="main">${demo ? '<div class="demo-banner"><span>ეს არის დემო სივრცე — ცვლილებები არ შეინახება.</span><button data-action="register">შექმენი შენი სივრცე →</button></div>' : ''}${view === 'profile' ? profileView() : view === 'ideas' ? ideasView() : view === 'pro' ? proView() : view === 'planner' ? plannerView() : view === 'lessons' ? lessonsView() : `<div class="dashboard-title"><div><span class="eyebrow">დღის დასაწყისი შენია</span><h1>გამარჯობა, ${escape(profile.name)} <span>♡</span></h1><p>მოდი, დღესაც პატარა ნაბიჯებით წავიდეთ.</p></div><button class="button" data-action="add-reminder">${icon('plus')} ახალი შეხსენება</button></div><section class="welcome-panel ${profile.stage === 'mother' ? 'mother-panel' : ''}"><div><span class="tag">${icon('spark')} ${profile.stage === 'pregnant' ? 'პატარას მოლოდინში' : 'ახალი დღე, ერთად'}</span><h2>${profile.stage === 'pregnant' ? 'შენი ყველაზე თბილი<br>მოლოდინის დღეები.' : 'პატარა ჩახუტებები.<br>დიდი ახალი ამბავი.'}</h2><p>${profile.stage === 'pregnant' ? 'იყავი საკუთარ თავთან ისეთივე ნაზი, როგორც შენს პატარასთან.' : 'ახალ რიტმს ნელ-ნელა იპოვი. საკუთარ თავსაც მოუსმინე.'}</p><span class="date-caption">${icon('calendar')} ${profile.stage === 'pregnant' ? 'პატარას ველოდებით:' : 'პატარას დაბადების დღე:'} ${formatDate(profile.referenceDate, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div><div class="welcome-art" aria-hidden="true"><span>♡</span><i>✧</i><small>შენ შესანიშნავად<br>ართმევ თავს</small></div></section><div class="dashboard-grid"><section class="reminders-panel"><div class="row-between panel-title"><div><span class="eyebrow">ცოტა მეტი სიმსუბუქე</span><h2>შენი შეხსენებები</h2></div>${icon('bell', 'pink')}</div><div class="tabs" role="group" aria-label="შეხსენებების ფილტრი">${[['today', 'დღეს'], ['all', 'ყველა'], ['personal', 'პირადი'], ['suggested', 'შეთავაზებული']].map(([key, name]) => `<button data-action="filter" data-filter="${key}" aria-pressed="${filter === key}" class="${filter === key ? 'selected' : ''}">${name}</button>`).join('')}</div><div class="reminders-list">${shown.length ? shown.map(reminderRow).join('') : `<div class="empty-state">${icon('leaf')}<h3>${filter === 'today' ? 'დღეს თავისუფალი სივრცე გაქვს' : 'აქ შენი გეგმები გამოჩნდება'}</h3><p>დაამატე შეხსენება და მნიშვნელოვანი ამბები ერთ ადგილას მოაგროვე.</p><button class="text-button" data-action="add-reminder">${icon('plus')} შეხსენების დამატება</button></div>`}</div><button class="add-reminder-inline" data-action="add-reminder">${icon('plus')} კიდევ ერთი პატარა გეგმა</button></section><aside class="day-aside"><section class="day-progress"><span class="eyebrow">შენი დღევანდელი ნაბიჯები</span><div class="progress-ring" style="--progress:${today.length ? (done / today.length) * 100 : 0}%"><div><strong>${done}<small> / ${today.length}</small></strong><span>შესრულებულია</span></div></div><h3>შენი ტემპი საკმარისია ♡</h3><p>ყველაფრის ერთ დღეში<br>მოსწრება საჭირო არ არის.</p></section><section class="tip-card">${icon('spark')}<h3>სივრცე შენთან ერთად იცვლება</h3><p>შეცვალე შენი ეტაპი პროფილიდან და მიიღე შესაბამისი შეხსენებები.</p><button class="text-button" data-action="profile">ჩემი პროფილი ${icon('arrow')}</button></section></aside></div>`}<p class="local-notice">${icon('heart')} შენი პირადი საცდელი სივრცე · მონაცემები ინახება მხოლოდ ამ ბრაუზერში · შეხსენებები ჩანს საიტზე</p></main></div></div>`;
+  shown = [...shown].sort((a, b) => Number(isComplete(a)) - Number(isComplete(b)) || `${nextOccurrence(a, localDate())}${a.time}`.localeCompare(`${nextOccurrence(b, localDate())}${b.time}`));
+  return `<div class="dashboard-shell"><aside class="sidebar"><a href="#" class="brand" data-action="home">${logo()}</a><div class="sidebar-label">შენი პირადი სივრცე</div><nav aria-label="პირადი სივრცე"><button class="sidebar-item ${view === 'dashboard' ? 'active' : ''}" data-action="dashboard">${icon('grid')} ჩემი დღე</button><button class="sidebar-item" data-action="all-reminders">${icon('bell')} შეხსენებები <span class="nav-count">${reminders.length}</span></button><button class="sidebar-item ${view === 'lessons' ? 'active' : ''}" data-action="lessons">${icon('play')} ვიდეოგაკვეთილები</button><button class="sidebar-item ${view === 'ideas' ? 'active' : ''}" data-action="ideas">${icon('leaf')} იდეები Dediko-სთვის</button><button class="sidebar-item pro-nav-link ${['pro', 'planner'].includes(view) ? 'active' : ''}" data-action="pro">${icon('spark')} Dediko Pro <span class="pro-mini">${trialStatus(data.pro).active ? 'აქტიური' : 'ახალი'}</span></button><button class="sidebar-item ${view === 'profile' ? 'active' : ''}" data-action="profile">${icon('user')} ჩემი პროფილი</button></nav><div class="sidebar-kind"><span>პატარა შეხსენება</span><div>♡</div><strong>საკუთარ თავზე ზრუნვაც<br>პატარაზე ზრუნვაა.</strong><p>შენც იმსახურებ შესვენებას.</p></div><button class="sidebar-item sidebar-bottom" data-action="${demo ? 'exit-demo' : 'home'}">${icon('logout')} ${demo ? 'დემოდან გასვლა' : 'მთავარი გვერდი'}</button></aside><div class="dashboard-content"><header class="dashboard-header"><div class="mobile-brand">${logo()}</div><span class="header-date">${formatDate(localDate(), { weekday: 'long', day: 'numeric', month: 'long' })}</span><div class="header-right">${trialStatus(data.pro).active ? '<button class="pro-header-badge" data-action="planner">✧ PRO</button>' : ''}<span class="stage-pill">${icon(profile.stage === 'pregnant' ? 'heart' : 'baby')}${stageName(profile.stage)}</span><button class="avatar" data-action="profile" aria-label="ჩემი პროფილი">${escape(profile.name.slice(0, 1))}</button></div></header><nav class="mobile-nav" aria-label="მობილური ნავიგაცია"><button data-action="dashboard">${icon('grid')} ჩემი დღე</button><button data-action="all-reminders">${icon('bell')} შეხსენებები</button><button data-action="lessons">${icon('play')} ვიდეოები</button><button data-action="ideas">${icon('leaf')} იდეები</button><button data-action="pro">${icon('spark')} Pro</button><button data-action="profile">${icon('user')} პროფილი</button></nav><main class="dashboard-main" id="main">${demo ? '<div class="demo-banner"><span>ეს არის დემო სივრცე — ცვლილებები არ შეინახება.</span><button data-action="register">შექმენი შენი სივრცე →</button></div>' : ''}${view === 'profile' ? profileView() : view === 'ideas' ? ideasView() : view === 'pro' ? proView() : view === 'planner' ? plannerView() : view === 'lessons' ? lessonsView() : `<div class="dashboard-title"><div><span class="eyebrow">დღის დასაწყისი შენია</span><h1>გამარჯობა, ${escape(profile.name)} <span>♡</span></h1><p>მოდი, დღესაც პატარა ნაბიჯებით წავიდეთ.</p></div><button class="button" data-action="add-reminder">${icon('plus')} ახალი შეხსენება</button></div><section class="welcome-panel ${profile.stage === 'mother' ? 'mother-panel' : ''}"><div><span class="tag">${icon('spark')} ${profile.stage === 'pregnant' ? 'პატარას მოლოდინში' : 'ახალი დღე, ერთად'}</span><h2>${profile.stage === 'pregnant' ? 'შენი ყველაზე თბილი<br>მოლოდინის დღეები.' : 'პატარა ჩახუტებები.<br>დიდი ახალი ამბავი.'}</h2><p>${profile.stage === 'pregnant' ? 'იყავი საკუთარ თავთან ისეთივე ნაზი, როგორც შენს პატარასთან.' : 'ახალ რიტმს ნელ-ნელა იპოვი. საკუთარ თავსაც მოუსმინე.'}</p><span class="date-caption">${icon('calendar')} ${profile.stage === 'pregnant' ? 'პატარას ველოდებით:' : 'პატარას დაბადების დღე:'} ${formatDate(profile.referenceDate, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div><div class="welcome-art" aria-hidden="true"><span>♡</span><i>✧</i><small>შენ შესანიშნავად<br>ართმევ თავს</small></div></section><div class="dashboard-grid"><section class="reminders-panel"><div class="row-between panel-title"><div><span class="eyebrow">ცოტა მეტი სიმსუბუქე</span><h2>შენი შეხსენებები</h2></div>${icon('bell', 'pink')}</div><div class="tabs" role="group" aria-label="შეხსენებების ფილტრი">${[['today', 'დღეს'], ['all', 'ყველა'], ['personal', 'პირადი'], ['suggested', 'შეთავაზებული']].map(([key, name]) => `<button data-action="filter" data-filter="${key}" aria-pressed="${filter === key}" class="${filter === key ? 'selected' : ''}">${name}</button>`).join('')}</div><div class="reminders-list">${shown.length ? shown.map(reminderRow).join('') : `<div class="empty-state">${icon('leaf')}<h3>${filter === 'today' ? 'დღეს თავისუფალი სივრცე გაქვს' : 'აქ შენი გეგმები გამოჩნდება'}</h3><p>დაამატე შეხსენება და მნიშვნელოვანი ამბები ერთ ადგილას მოაგროვე.</p><button class="text-button" data-action="add-reminder">${icon('plus')} შეხსენების დამატება</button></div>`}</div><button class="add-reminder-inline" data-action="add-reminder">${icon('plus')} კიდევ ერთი პატარა გეგმა</button></section><aside class="day-aside"><section class="day-progress"><span class="eyebrow">შენი დღევანდელი ნაბიჯები</span><div class="progress-ring" style="--progress:${today.length ? (done / today.length) * 100 : 0}%"><div><strong>${done}<small> / ${today.length}</small></strong><span>შესრულებულია</span></div></div><h3>შენი ტემპი საკმარისია ♡</h3><p>ყველაფრის ერთ დღეში<br>მოსწრება საჭირო არ არის.</p></section><section class="tip-card">${icon('spark')}<h3>სივრცე შენთან ერთად იცვლება</h3><p>შეცვალე შენი ეტაპი პროფილიდან და მიიღე შესაბამისი შეხსენებები.</p><button class="text-button" data-action="profile">ჩემი პროფილი ${icon('arrow')}</button></section></aside></div>`}<p class="local-notice">${icon('heart')} ${account.user ? 'შენი პირადი ანგარიში · მონაცემები სინქრონიზდება · შეტყობინებები ჩართე პროფილიდან' : 'ლოკალური სივრცე · ანგარიშის შექმნით მონაცემებს სხვა მოწყობილობაზეც ნახავ'}</p></main></div></div>`;
 }
 
 function currentLessons() {
@@ -167,7 +172,7 @@ function lessonDialog(id) {
     <label class="field">მოკლე აღწერა<textarea name="description" maxlength="240" rows="3" placeholder="რაზეა ეს გაკვეთილი?">${escape(lesson?.description || '')}</textarea></label>
     <div class="field-row"><label class="field">ვისთვისაა?<select name="lessonStage"><option value="pregnant" ${stage === 'pregnant' ? 'selected' : ''}>ორსულებისთვის</option><option value="mother" ${stage === 'mother' ? 'selected' : ''}>ახალბედა დედებისთვის</option></select></label><label class="field">კატეგორია<select name="lessonCategory">${lessonCategories(stage).map(category => `<option value="${category.id}" ${lesson?.category === category.id ? 'selected' : ''}>${category.label}</option>`).join('')}</select></label></div>
     <label class="field">ვიდეოს ენა<select name="language">${['ქართული', 'ინგლისური', 'სხვა'].map(language => `<option ${lesson?.language === language ? 'selected' : ''}>${language}</option>`).join('')}</select></label>
-    <p class="form-note">დამატებული ბმული მხოლოდ ამ ბრაუზერში შეინახება. საერთო კატალოგში ვიდეოს გამოქვეყნება ამ ფორმით არ ხდება.</p><div class="form-error" role="alert"></div><button class="button full-width" type="submit">${lesson ? 'ცვლილებების შენახვა' : 'ჩემს ბიბლიოთეკაში შენახვა'} ${icon('check')}</button>${lesson ? `<button class="delete-button" type="button" data-action="delete-lesson" data-id="${escape(id)}">ჩემი ვიდეოს წაშლა</button>` : ''}</form>`);
+    <p class="form-note">${account.user ? 'დამატებული ბმული შენს ანგარიშში შეინახება.' : 'დამატებული ბმული ამ ბრაუზერში შეინახება.'} საერთო კატალოგში ვიდეოს გამოქვეყნება ამ ფორმით არ ხდება.</p><div class="form-error" role="alert"></div><button class="button full-width" type="submit">${lesson ? 'ცვლილებების შენახვა' : 'ჩემს ბიბლიოთეკაში შენახვა'} ${icon('check')}</button>${lesson ? `<button class="delete-button" type="button" data-action="delete-lesson" data-id="${escape(id)}">ჩემი ვიდეოს წაშლა</button>` : ''}</form>`);
 }
 
 function submitLesson(form, values) {
@@ -270,7 +275,7 @@ function proView() {
     <div class="pricing-grid"><article class="price-card"><span class="eyebrow">ყოველდღიური თანამგზავრი</span><h2>Dediko Free</h2><div class="price-amount">0 ₾ <span>/ უფასოდ</span></div><p>ძირითადი სივრცე შენთვის და პატარასთვის.</p><ul><li>${icon('check')} პირადი და შეთავაზებული შეხსენებები</li><li>${icon('check')} ორსულისა და ახალბედა დედის რეჟიმები</li><li>${icon('check')} არსებული უფასო ვიდეობიბლიოთეკა</li><li>${icon('check')} პირადი ვიდეოები და ნახვის ისტორია</li></ul><button class="button price-free-button" data-action="${data.profile ? 'dashboard' : 'register'}">${data.profile ? 'ჩემი უფასო სივრცე' : 'დაიწყე უფასოდ'}</button></article>
     <article class="price-card price-pro"><span class="price-ribbon">მეტი დრო შენთვის</span><span class="eyebrow">ყველაფერი Free-დან და მეტი</span><h2>Dediko Pro ${icon('spark')}</h2><div class="price-amount">${proPrice} ₾ <span>/ თვე</span></div><p>დაგეგმილი ფასი · პირველი 7 დღე საცდელად.</p><ul><li>${icon('check')} პერსონალური კვირის გეგმა</li><li>${icon('check')} ორივე ეტაპის გეგმის შაბლონები</li><li>${icon('check')} კვირის პირადი ჩანაწერები</li><li>${icon('check')} შეხსენებების კალენდარში ექსპორტი</li><li>${icon('check')} ვიდეოების სასწავლო მარშრუტი</li></ul>${status.active ? `<button class="button" data-action="planner">ჩემი Pro სივრცე ${icon('arrow')}</button>` : status.used ? '<button class="button" disabled>საცდელი პერიოდი დასრულებულია</button><p class="price-footnote">ფასიანი გამოწერის შეძენა მოგვიანებით დაემატება.</p>' : `<button class="button" data-action="start-pro-trial">გამოსცადე Pro — 7 დღე ${icon('spark')}</button><p class="price-footnote">ბარათის გარეშე · ავტომატური ჩამოჭრის გარეშე</p>`}</article></div>
     <section class="pro-benefits"><article>${icon('calendar')}<h3>კვირა, შენი ტემპით</h3><p>დაგეგმე საქმეები და მონიშნე შესრულებული. შეინარჩუნე შენი გეგმები ეტაპის შეცვლის დროსაც.</p></article><article>${icon('leaf')}<h3>სივრცე საკუთარი ფიქრებისთვის</h3><p>ყოველ კვირას საკუთარი ჩანაწერი აქვს — იდეებისთვის, კითხვებისა და პატარა აღმოჩენებისთვის.</p></article><article>${icon('heart')}<h3>ყველაფერი შენს ხელშია</h3><p>ექსპორტი გაუკეთე შენს შეხსენებებს და დაამატე ისინი სასურველ კალენდარში.</p></article></section>
-    <section class="pro-faq"><h2>პატარა კითხვები, მარტივი პასუხები</h2><details><summary>შეხსენებები ფასიანი ხდება?</summary><p>ძირითადი შეხსენებები და არსებული ვიდეოები Free პაკეტში რჩება. Pro დამატებით დაგეგმვისა და ორგანიზების ხელსაწყოებს გაძლევს.</p></details><details><summary>7 დღის შემდეგ თანხა ჩამომეჭრება?</summary><p>საცდელი ვერსია თანხას არ ჩამოგაჭრის. ამ ეტაპზე ბარათის დამატება და ფასიანი გამოწერის შეძენა ჩართული არ არის.</p></details><details><summary>სად ინახება ჩემი გეგმა?</summary><p>ამ ვერსიაში გეგმები, ჩანაწერები და საცდელი სტატუსი მხოლოდ ამ ბრაუზერში ინახება. სხვა მოწყობილობაზე სინქრონიზაცია ჯერ არ არის ხელმისაწვდომი.</p></details></section>`;
+    <section class="pro-faq"><h2>პატარა კითხვები, მარტივი პასუხები</h2><details><summary>შეხსენებები ფასიანი ხდება?</summary><p>ძირითადი შეხსენებები და არსებული ვიდეოები Free პაკეტში რჩება. Pro დამატებით დაგეგმვისა და ორგანიზების ხელსაწყოებს გაძლევს.</p></details><details><summary>7 დღის შემდეგ თანხა ჩამომეჭრება?</summary><p>საცდელი ვერსია თანხას არ ჩამოგაჭრის. ამ ეტაპზე ბარათის დამატება და ფასიანი გამოწერის შეძენა ჩართული არ არის.</p></details><details><summary>სად ინახება ჩემი გეგმა?</summary><p>ანგარიშში შესვლის შემდეგ გეგმები და ჩანაწერები შენს პირად ანგარიშში ინახება და სხვა მოწყობილობაზეც ხელმისაწვდომია. ძველი ლოკალური სივრცის გადატანას რეგისტრაციისას თავად ირჩევ.</p></details></section>`;
 }
 
 function publicProPage() {
@@ -343,9 +348,18 @@ function openMobileMenu() {
   dialog.classList.add('dock-menu-dialog');
 }
 function render() {
+  if (!account.ready) { app.innerHTML='<main class="auth-loading" id="main"><h1>Dediko ♡</h1><p>შენს სივრცეს ვამზადებთ…</p></main>'; return; }
   renderedDate = localDate();
   renderedProActive = trialStatus(data.pro).active;
   app.innerHTML = (view === 'landing' ? landing() : view === 'pro' && !data.profile ? publicProPage() : view === 'ideas' && !data.profile ? publicIdeasPage() : dashboard()) + mobileGlassNav();
+  const main = app.querySelector('.dashboard-main');
+  if (main && !demo) main.insertAdjacentHTML('afterbegin', accountBanner());
+  if (view === 'profile' && !demo) {
+    const panel = app.querySelector('.profile-panel');
+    panel?.insertAdjacentHTML('beforeend', accountPanel());
+    if (account.user) panel?.querySelector('[data-action="reset-profile"]')?.remove();
+  }
+  if (view === 'landing') app.querySelector('.site-header')?.insertAdjacentHTML('beforeend', `<button class="text-button" data-action="${account.user ? 'dashboard' : 'login'}">${account.user ? 'ჩემი სივრცე' : 'შესვლა'}</button>`);
   document.title = `Dediko — ${view === 'landing' ? 'შენთან, დედობის ყოველ ნაბიჯზე' : view === 'ideas' ? 'იდეები Dediko-სთვის' : view === 'pro' ? 'Dediko Pro' : view === 'planner' ? 'ჩემი Pro გეგმა' : view === 'profile' ? 'ჩემი პროფილი' : view === 'lessons' ? 'ვიდეოგაკვეთილები' : 'ჩემი დღე'}`;
 }
 function openDialog(content) {
@@ -354,8 +368,9 @@ function openDialog(content) {
   dialog.showModal();
 }
 function register(stage = 'pregnant') {
-  if (data.profile && !demo) { view = 'dashboard'; render(); return; }
-  openDialog(`<div class="dialog-symbol">${icon('heart')}</div><span class="eyebrow">კეთილი იყოს შენი მობრძანება</span><h2 id="dialog-title">შენი ამბავი აქ იწყება ♡</h2><p class="dialog-intro">ცოტა რამ შენზე, რომ შენი სივრცე მოგარგოთ.</p><form id="register-form">${profileFields({ stage })}<p class="form-note">ეს ლოკალური ვერსიაა: პროფილი ამ ბრაუზერში შეინახება. ელფოსტა და პაროლი საჭირო არ არის.</p><div class="form-error" role="alert"></div><button type="submit" class="button full-width">შექმენი ჩემი სივრცე ${icon('arrow')}</button></form>`);
+  if (account.user && data.profile && !demo) { view = 'dashboard'; render(); return; }
+  const old = load();
+  openDialog(`<div class="dialog-symbol">${icon('heart')}</div><span class="eyebrow">კეთილი იყოს შენი მობრძანება</span><h2 id="dialog-title">შენი ამბავი აქ იწყება ♡</h2><p class="dialog-intro">შენი ანგარიში — ყველა მოწყობილობაზე.</p><form id="register-form">${!account.user ? authFields(true) : `<p class="account-email">${escape(account.user.email)}</p>`}${profileFields(onboardingDraft || old.profile || { stage })}${old.profile ? '<label class="switch-field"><span>ამ ბრაუზერის შეხსენებები და ჩანაწერები ჩემს ანგარიშში გადავიტანო</span><input type="checkbox" name="importLocal"></label>' : ''}<p class="form-note">პროფილი, შეხსენებები და ჩანაწერები შენს პირად ანგარიშში შეინახება. შეტყობინებებს ცალკე, შენი ნებართვით ჩართავ.</p><div class="form-error" role="alert"></div><button type="submit" class="button full-width">${account.user ? 'შეინახე ჩემი პროფილი' : 'შექმენი ჩემი ანგარიში'} ${icon('arrow')}</button></form>${!account.user ? '<p class="auth-switch">უკვე გაქვს ანგარიში? <button data-action="login">შესვლა</button></p>' : ''}`);
 }
 function reminderDialog(id) {
   const reminder = data.reminders.find(r => r.id === id);
@@ -368,6 +383,7 @@ function ensureSuggestions() {
 }
 function startDemo() {
   if (data.profile) { view = 'dashboard'; render(); return; }
+  beforeDemoData = structuredClone(data);
   demo = true;
   const date = new Date();
   date.setDate(date.getDate() + 100);
@@ -381,6 +397,8 @@ document.addEventListener('click', event => {
   event.preventDefault();
   let { action } = button.dataset;
   const { id } = button.dataset;
+  if (account.user && ['reset-profile','confirm-reset'].includes(action)) return;
+  if (['login','forgot-password','verify-email','logout','confirm-logout','retry-sync','reload-cloud','confirm-reload-cloud','download-data','enable-push','disable-push','test-push','retry-push'].includes(action)) { handleAccountAction(action, button); return; }
   if(action==='dock-menu'){openMobileMenu();return;}
   if(action==='dock-navigate'){
     action=button.dataset.destination;
@@ -426,7 +444,7 @@ document.addEventListener('click', event => {
       const link = document.createElement('a'); link.href = url; link.download = 'dediko-reminders.ics'; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast('კალენდრის ფაილი მზადაა — გახსენი შენს კალენდარში.'); return;
     }
-    if (action === 'end-pro-trial') return openDialog(`<h2 id="dialog-title">დაასრულებ Pro-ს საცდელ რეჟიმს?</h2><p class="dialog-intro">გეგმები და ჩანაწერები შენახული დარჩება. ამ ბრაუზერში 7-დღიანი პერიოდის თავიდან ჩართვა აღარ იქნება შესაძლებელი.</p><button class="button full-width" data-action="confirm-end-pro">დიახ, დავასრულო საცდელი რეჟიმი</button><button class="delete-button" data-action="close-dialog">გაგრძელება</button>`);
+    if (action === 'end-pro-trial') return openDialog(`<h2 id="dialog-title">დაასრულებ Pro-ს საცდელ რეჟიმს?</h2><p class="dialog-intro">გეგმები და ჩანაწერები შენახული დარჩება. შენს სივრცეში 7-დღიანი საცდელი პერიოდის თავიდან ჩართვა აღარ იქნება შესაძლებელი.</p><button class="button full-width" data-action="confirm-end-pro">დიახ, დავასრულო საცდელი რეჟიმი</button><button class="delete-button" data-action="close-dialog">გაგრძელება</button>`);
     if (action === 'confirm-end-pro') { data.pro.cancelled = true; save(); dialog.close(); view = 'pro'; }
     render(); return;
   }
@@ -462,8 +480,9 @@ document.addEventListener('click', event => {
     demo = false; data = load(); view = data.profile ? 'dashboard' : 'landing'; dialog.close(); render(); window.scrollTo(0, 0); return;
   }
   if (action === 'home') { view = 'landing'; history.replaceState(null, '', location.pathname); render(); window.scrollTo(0, 0); }
-  if (action === 'exit-demo') { demo = false; data = load(); view = 'landing'; render(); window.scrollTo(0, 0); }
+  if (action === 'exit-demo') { demo = false; data = account.user ? beforeDemoData || emptyData() : load(); beforeDemoData = null; view = 'landing'; render(); window.scrollTo(0, 0); }
   if (['dashboard', 'profile', 'all-reminders'].includes(action)) {
+    if (!data.profile) { register(); return; }
     view = action === 'profile' ? 'profile' : 'dashboard';
     if (action === 'all-reminders') filter = 'all';
     render(); window.scrollTo(0, 0);
@@ -476,7 +495,7 @@ document.addEventListener('click', event => {
   }
   if (action === 'complete') {
     const reminder = data.reminders.find(r => r.id === id);
-    const key = completionKey(reminder);
+    const key = completionKey(reminder, localDate());
     reminder.completed = reminder.completed.includes(key) ? reminder.completed.filter(date => date !== key) : [...reminder.completed, key];
     save(); render();
   }
@@ -500,6 +519,7 @@ document.addEventListener('change', event => {
 
 document.addEventListener('submit', event => {
   const form = event.target;
+  if (['login-form','forgot-form','password-form','verify-form'].includes(form.id)) { event.preventDefault(); submitAuthForm(form); return; }
   if (!['register-form', 'profile-form', 'reminder-form', 'lesson-form', 'planner-task-form', 'planner-notes-form', 'idea-form'].includes(form.id)) return;
   event.preventDefault();
   const values = Object.fromEntries(new FormData(form));
@@ -512,7 +532,7 @@ document.addEventListener('submit', event => {
     if (!['pregnant', 'mother'].includes(values.stage) || !values.referenceDate) { error.textContent = 'აირჩიე ეტაპი და შესაბამისი თარიღი.'; return; }
     const invalidDate = values.stage === 'mother' ? values.referenceDate > localDate() : values.referenceDate < localDate();
     if (invalidDate) { error.textContent = 'გთხოვ, გადაამოწმე არჩეული თარიღი.'; return; }
-    if (form.id === 'register-form') { demo = false; data = emptyData(); }
+    if (form.id === 'register-form') { submitRegistration(form, values); return; }
     data.profile = { name: values.name.trim(), stage: values.stage, referenceDate: values.referenceDate };
     ensureSuggestions();
     if (form.id === 'register-form' && pendingProTrial) { data.pro = startProTrial(data.pro); }
@@ -553,6 +573,232 @@ setInterval(() => {
     if (['dashboard', 'pro', 'planner'].includes(view)) render();
   }
 }, 30000);
+let saveTimer, saveRunning = false;
+let migrationPending = false;
+let onboardingDraft = null;
+const draftKey = () => account.user ? `dediko.pending.${account.user.id}` : null;
+function rememberDraft() {
+  try { localStorage.setItem(draftKey(), JSON.stringify({ document:data, revision:account.revision, timezone:account.timezone })); }
+  catch { /* The unsaved indicator and export remain available. */ }
+}
+function updateAccountStatus() {
+  const banner = document.querySelector('#account-banner');
+  if (banner) banner.outerHTML = accountBanner();
+}
+function accountBanner() {
+  if (!account.user) return `<div id="account-banner" class="account-status"><p>${account.sessionError ? 'ანგარიშის შემოწმება ვერ მოხერხდა. ეს სივრცე მხოლოდ ამ ბრაუზერშია.' : 'ეს ძველი სივრცე მხოლოდ ამ ბრაუზერშია შენახული.'}</p><button class="text-button" data-action="register">ანგარიშის შექმნა</button><button class="text-button" data-action="login">შესვლა</button></div>`;
+  const message = account.conflict ? 'ანგარიში სხვა მოწყობილობიდან შეიცვალა. შენი ცვლილებები ცალკე შენახულია; ანგარიშის ვერსია არ გადაგვიწერია.' : account.status === 'error' ? (account.error || 'ცვლილებები ჯერ ანგარიშში არ შენახულა. სცადე ხელახლა.') : account.dirty ? 'ცვლილებები ინახება…' : 'შენახულია შენს ანგარიშში ♡';
+  return `<div id="account-banner" class="account-status ${account.conflict || account.status === 'error' ? 'is-error' : ''}" role="status"><p>${escape(message)}</p>${account.status === 'error' && !account.conflict ? '<button class="text-button" data-action="retry-sync">ხელახლა შენახვა</button>' : ''}${account.needsLogin ? '<button class="text-button" data-action="login">შესვლა</button>' : ''}${account.dirty ? '<button class="text-button" data-action="download-data">ჩამოტვირთე ასლი</button>' : ''}${account.conflict ? '<button class="text-button" data-action="reload-cloud">ანგარიშის ვერსიის ჩატვირთვა</button>' : ''}${!account.dirty ? `<span>${escape(account.user.email)}</span>` : ''}</div>`;
+}
+function queueCloudSave() {
+  account.dirty = true; account.generation++; account.error = '';
+  if (!account.conflict) account.status = 'saving';
+  rememberDraft(); updateAccountStatus(); clearTimeout(saveTimer);
+  if (!account.conflict) saveTimer = setTimeout(flushCloudSave, 450);
+}
+async function flushCloudSave() {
+  clearTimeout(saveTimer);
+  if (saveRunning || !account.user || !account.dirty || account.conflict || demo) return;
+  saveRunning = true;
+  const generation = account.generation, userId = account.user.id;
+  const document = structuredClone(data);
+  try {
+    const result = await accountRequest('account', 'PUT', { document, revision:account.revision, timezone:account.timezone });
+    if (account.user?.id !== userId) return;
+    account.revision = result.revision;
+    if (generation === account.generation) {
+      account.dirty = false; account.status = 'saved';
+      try { localStorage.removeItem(draftKey()); if (migrationPending) localStorage.removeItem(storageKey); } catch { /* Saved in the cloud. */ }
+      migrationPending = false;
+    } else rememberDraft();
+    if (!result.scheduled) toast('მონაცემები შენახულია. შეტყობინებების დაგეგმვას განმეორება სჭირდება — ნახე პროფილი.');
+  } catch (error) {
+    account.conflict = error.status === 409; account.needsLogin = error.status === 401; account.status = 'error'; account.error = error.message;
+    rememberDraft();
+  } finally {
+    saveRunning = false; updateAccountStatus();
+    if (account.dirty && !account.conflict && account.status !== 'error') saveTimer = setTimeout(flushCloudSave, 100);
+  }
+}
+function adoptAccount(result, restoreDraft = true) {
+  setAccountOwner(result.user.id);
+  account.user = result.user; account.revision = result.revision; account.timezone = result.timezone || browserZone();
+  account.needsLogin = false;
+  account.dirty = false; account.conflict = false; account.status = 'saved'; account.sessionError = false; demo = false;
+  data = result.document ? migrateProState(migrateLessonState(result.document)) : emptyData();
+  if (restoreDraft) try {
+    const pending = JSON.parse(localStorage.getItem(draftKey()));
+    if (pending?.document?.profile) {
+      data = pending.document; account.timezone = pending.timezone; account.dirty = true;
+      account.conflict = pending.revision !== result.revision; account.status = 'error';
+      account.error = 'ამ მოწყობილობაზე შენახვას ელოდება ცვლილებები. დააჭირე „ხელახლა შენახვას“.';
+    }
+  } catch { /* No pending draft. */ }
+}
+async function initializeAccount() {
+  try {
+    account.config = await accountRequest('config');
+    adoptAccount(await accountRequest('account'));
+    if (!['pro','ideas'].includes(requestedPage) && location.hash !== '#team') view = data.profile ? 'dashboard' : 'landing';
+  } catch (error) {
+    account.sessionError = error.status !== 401;
+    if (account.sessionError) account.error = error.message;
+  }
+  account.ready = true;
+  if (requestedPage === 'reminders' && data.profile) { view = 'dashboard'; filter = 'all'; }
+  render();
+  if (view === 'ideas') loadIdeas();
+  if (view === 'landing' && location.hash === '#team') document.querySelector('#team')?.scrollIntoView();
+  if (new URLSearchParams(location.search).has('token')) passwordDialog();
+  else if (new URLSearchParams(location.search).get('error')) { toast('პაროლის აღდგენის ბმული ვადაგასულია. მოითხოვე ახალი.'); authDialog('forgot'); }
+  if (account.user) refreshPushState();
+}
+function authFields(signup = false) {
+  return `<label class="field">ელფოსტა<input type="email" name="email" required autocomplete="email" maxlength="254" placeholder="name@example.com"></label><label class="field">პაროლი<input type="password" name="password" required ${signup ? 'minlength="12"' : ''} maxlength="128" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>${signup ? '<p class="auth-help">გამოიყენე მინიმუმ 12 სიმბოლო. პაროლი მხოლოდ ანგარიშების სერვისში იგზავნება.</p>' : ''}`;
+}
+function authDialog(mode = 'login') {
+  if (mode === 'forgot') {
+    openDialog(`<h2 id="dialog-title">პაროლის აღდგენა</h2><p class="dialog-intro">გამოგიგზავნით პაროლის აღდგენის ბმულს.</p><form id="forgot-form"><label class="field">ელფოსტა<input type="email" name="email" required autocomplete="email" maxlength="254"></label><div class="form-error" role="alert"></div><button type="submit" class="button full-width">ბმულის გამოგზავნა</button></form><p class="auth-switch"><button data-action="login">შესვლაზე დაბრუნება</button></p>`); return;
+  }
+  openDialog(`<div class="dialog-symbol">${icon('heart')}</div><h2 id="dialog-title">კეთილი იყოს შენი დაბრუნება ♡</h2><p class="dialog-intro">შედი და გააგრძელე შენი ამბავი ნებისმიერი მოწყობილობიდან.</p><form id="login-form">${authFields()}<div class="form-error" role="alert"></div><button type="submit" class="button full-width">შესვლა ${icon('arrow')}</button></form><p class="auth-switch"><button data-action="forgot-password">პაროლი დაგავიწყდა?</button><button data-action="register">ანგარიშის შექმნა</button><button data-action="verify-email">ელფოსტის დადასტურება</button></p>`);
+}
+function passwordDialog() {
+  openDialog(`<h2 id="dialog-title">ახალი პაროლი</h2><form id="password-form"><label class="field">ახალი პაროლი<input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" required></label><div class="form-error" role="alert"></div><button type="submit" class="button full-width">პაროლის შენახვა</button></form>`);
+}
+function verifyDialog(email = account.user?.email || '', sent = false) {
+  openDialog(`<h2 id="dialog-title">ელფოსტის დადასტურება</h2><p class="dialog-intro">${sent ? 'შეამოწმე ელფოსტა და შეიყვანე ერთჯერადი კოდი.' : 'გამოითხოვე ერთჯერადი კოდი შენს ელფოსტაზე.'}</p><form id="verify-form" data-sent="${sent}"><label class="field">ელფოსტა<input type="email" name="email" value="${escape(email)}" ${sent ? 'readonly' : ''} required autocomplete="email"></label>${sent ? '<label class="field">ერთჯერადი კოდი<input name="otp" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6"></label>' : ''}<div class="form-error" role="alert"></div><button type="submit" class="button full-width">${sent ? 'დადასტურება' : 'კოდის გამოგზავნა'}</button></form>`);
+}
+async function withFormBusy(form, work) {
+  const buttons = [...form.querySelectorAll('button')]; buttons.forEach(button => button.disabled = true);
+  const error = form.querySelector('.form-error'); error.textContent = '';
+  try { await work(); } catch (failure) { error.textContent = failure.message; }
+  finally { buttons.forEach(button => button.disabled = false); }
+}
+async function submitRegistration(form, values) {
+  await withFormBusy(form, async () => {
+    if (!account.user) {
+      if (values.password.length < 12) throw new Error('პაროლი მინიმუმ 12 სიმბოლოს უნდა შეიცავდეს.');
+      onboardingDraft = { name:values.name, stage:values.stage, referenceDate:values.referenceDate };
+      await authCall('signUp.email', { email:values.email, password:values.password, name:values.name.trim() });
+      try { adoptAccount(await accountRequest('account'), false); }
+      catch (error) { if (error.status === 401) { verifyDialog(values.email); toast('ანგარიში შეიქმნა. შესვლამდე ელფოსტა დაადასტურე.'); return; } throw error; }
+    }
+    if (data.profile && !demo) throw new Error('ამ ანგარიშში პროფილი უკვე არსებობს. შედი შენს სივრცეში.');
+    demo = false; data = values.importLocal === 'on' ? structuredClone(load()) : emptyData();
+    migrationPending = values.importLocal === 'on';
+    data.profile = { name:values.name.trim(), stage:values.stage, referenceDate:values.referenceDate };
+    account.timezone = browserZone(); ensureSuggestions();
+    if (pendingProTrial) data.pro = startProTrial(data.pro);
+    save(); await flushCloudSave();
+    onboardingDraft = null;
+    const target = pendingProTrial ? 'planner' : 'dashboard';
+    if (dialog.open) dialog.close(); view = target; render(); refreshPushState();
+    toast(account.dirty ? 'ანგარიში შეიქმნა. მონაცემების შენახვას განმეორება სჭირდება.' : 'კეთილი იყოს შენი მობრძანება Dediko-ში ♡');
+  });
+}
+async function submitAuthForm(form) {
+  const values = Object.fromEntries(new FormData(form));
+  await withFormBusy(form, async () => {
+    if (form.id === 'login-form') {
+      await authCall('signIn.email', values);
+      adoptAccount(await accountRequest('account'));
+      dialog.close(); view = data.profile ? 'dashboard' : 'landing'; render(); refreshPushState();
+      if (!data.profile) register();
+    } else if (form.id === 'forgot-form') {
+      await authCall('requestPasswordReset', { email:values.email, redirectTo:`${location.origin}/?page=reset-password` });
+      openDialog('<h2 id="dialog-title">შეამოწმე ელფოსტა ♡</h2><p class="dialog-intro">თუ ამ ელფოსტაზე ანგარიში არსებობს, აღდგენის ბმულს მიიღებ. შეამოწმე Spam საქაღალდეც.</p><button class="button full-width" data-action="login">შესვლაზე დაბრუნება</button>');
+    } else if (form.id === 'password-form') {
+      await authCall('resetPassword', { newPassword:values.password, token:new URLSearchParams(location.search).get('token') });
+      history.replaceState(null, '', '/'); toast('პაროლი განახლდა. შედი ახალი პაროლით.'); authDialog();
+    } else if (form.dataset.sent === 'true') {
+      await authCall('emailOtp.verifyEmail', values); dialog.close();
+      if (account.user) { account.user.emailVerified = true; render(); } else authDialog();
+      toast('ელფოსტა დადასტურებულია ♡');
+    } else {
+      await authCall('emailOtp.sendVerificationOtp', { email:values.email, type:'email-verification' }); verifyDialog(values.email, true);
+    }
+  });
+}
+function accountPanel() {
+  if (!account.user) return '<section class="account-panel"><h3>შენი სივრცე ყველა მოწყობილობაზე</h3><p>შექმენი ანგარიში, გადაიტანე ძველი მონაცემები და ჩართე ტელეფონზე შეხსენებები.</p><button class="button" data-action="register">ანგარიშის შექმნა</button><button class="text-button" data-action="login">შესვლა</button></section>';
+  const support = pushSupport();
+  const description = support === 'iphone-install' ? 'iPhone-ზე გახსენი Safari → გაზიარება → Add to Home Screen. შემდეგ Dediko გახსენი მთავარი ეკრანიდან და აქ ჩართე შეტყობინებები (iOS 16.4 ან ახალი).' : support === 'unsupported' ? 'ამ ბრაუზერში Push შეტყობინებები მიუწვდომელია. სცადე განახლებული Safari, Chrome, Firefox ან Edge.' : 'ჩართე შეხსენებები ამ მოწყობილობაზე. ისინი საიტის დახურვის შემდეგაც მოვა, თუ ბრაუზერისა და ტელეფონის პარამეტრები ამის საშუალებას იძლევა.';
+  return `<section class="account-panel"><h3>ჩემი ანგარიში</h3><p>${escape(account.user.email)} · ${account.user.emailVerified ? 'ელფოსტა დადასტურებულია' : 'ელფოსტა ჯერ დაუდასტურებელია'}</p>${!account.user.emailVerified ? '<button class="text-button" data-action="verify-email">ელფოსტის დადასტურება</button>' : ''}<p>შეხსენებების დროის სარტყელი: <strong>${escape(account.timezone)}</strong>. მოწყობილობის მიმდინარე სარტყელი: ${escape(browserZone())}.</p>${account.timezone !== browserZone() ? '<button class="text-button" data-action="use-device-timezone">მოწყობილობის სარტყლის გამოყენება</button>' : ''}<h3>შეტყობინებები ტელეფონზე ${icon('bell')}</h3><span class="notification-state">${account.subscribed ? 'ჩართულია ამ მოწყობილობაზე' : 'გამორთულია ამ მოწყობილობაზე'}</span><p>${description}</p><p>დაბლოკილ ეკრანზე გამოჩნდება მხოლოდ ზოგადი ტექსტი. შეტყობინებაზე დაჭერით შენს შეხსენებებთან გადახვალ.</p>${support === 'supported' ? `<button class="button" data-action="${account.subscribed ? 'disable-push' : 'enable-push'}" ${account.pushBusy ? 'disabled' : ''}>${account.subscribed ? 'ამ მოწყობილობაზე გამორთვა' : 'შეტყობინებების ჩართვა'}</button>${account.subscribed ? `<button class="text-button" data-action="test-push" ${account.pushBusy ? 'disabled' : ''}>ტესტის გაგზავნა</button><button class="text-button" data-action="retry-push">დაგეგმვის განახლება</button>` : ''}` : ''}<p>ინტერნეტის, Focus რეჟიმისა და ბრაუზერის პარამეტრებმა შეიძლება მიწოდება შეაფერხოს. მნიშვნელოვანი ვიზიტებისთვის დამატებით კალენდარიც გამოიყენე.</p><button class="delete-button" data-action="logout">ანგარიშიდან გასვლა</button></section>`;
+}
+async function refreshPushState() {
+  try {
+    const subscription = await currentSubscription();
+    const state = subscription ? await accountRequest('push', 'POST', { action:'status', endpoint:subscription.endpoint }) : { subscribed:false };
+    account.subscribed = state.subscribed;
+    if (state.pending) toast('ზოგი შეხსენება დაგეგმვას ელოდება. პროფილში დააჭირე „დაგეგმვის განახლებას“.');
+    if (view === 'profile' && !dialog.open && !document.activeElement?.closest('form')) render();
+  } catch { account.subscribed = false; }
+}
+async function handleAccountAction(action, button) {
+  if (action === 'login') { authDialog(); return; }
+  if (action === 'forgot-password') { authDialog('forgot'); return; }
+  if (action === 'verify-email') { verifyDialog(); return; }
+  if (action === 'download-data') { downloadData(); return; }
+  if (action === 'retry-sync') { account.status = 'saving'; await flushCloudSave(); return; }
+  if (action === 'reload-cloud') { openDialog('<h2 id="dialog-title">ჩაიტვირთოს ანგარიშის ვერსია?</h2><p class="dialog-intro">ამ მოწყობილობის შეუნახავი ცვლილებები შეიცვლება. ჯერ ჩამოტვირთე ასლი, თუ მათი შენარჩუნება გჭირდება.</p><button class="text-button" data-action="download-data">ასლის ჩამოტვირთვა</button><button class="button full-width" data-action="confirm-reload-cloud">ანგარიშის ვერსიის ჩატვირთვა</button>'); return; }
+  if (action === 'logout' && account.dirty) { openDialog('<h2 id="dialog-title">ცვლილებები ჯერ არ შენახულა</h2><p class="dialog-intro">გასვლით ამ მოწყობილობაზე შეუნახავი ცვლილებები გასუფთავდება. შეგიძლია ჩამოტვირთო ასლი ან დაბრუნდე და გაიმეორო შენახვა.</p><button class="text-button" data-action="download-data">ასლის ჩამოტვირთვა</button><button class="button full-width" data-action="confirm-logout">გასვლა და შეუნახავი ცვლილებების გასუფთავება</button>'); return; }
+  button.disabled = true;
+  try {
+    if (action === 'confirm-reload-cloud') {
+      const result = await accountRequest('account');
+      try { localStorage.removeItem(draftKey()); } catch { /* Clear memory as well. */ }
+      adoptAccount(result, false); dialog.close(); view = data.profile ? 'dashboard' : 'landing'; render(); return;
+    }
+    if (['logout','confirm-logout'].includes(action)) {
+      if (saveRunning) throw new Error('შენახვა მიმდინარეობს. ცოტა ხანში სცადე.');
+      clearTimeout(saveTimer);
+      await disablePush(); await authCall('signOut');
+      try { localStorage.removeItem(draftKey()); } catch { /* No local cloud cache. */ }
+      account.user = null; account.dirty = false; account.conflict = false; account.subscribed = false;
+      try { localStorage.setItem('dediko.signed-out', String(Date.now())); } catch { /* Other tabs also revalidate on focus. */ }
+      data = load(); demo = false; view = 'landing'; if (dialog.open) dialog.close(); history.replaceState(null, '', '/'); render(); return;
+    }
+    if (!account.user) throw new Error('ჯერ შედი შენს ანგარიშში.');
+    account.pushBusy = true;
+    if (action === 'enable-push') {
+      if (!account.config?.pushPublicKey) throw new Error('შეტყობინებების სერვისი ჯერ მზად არ არის.');
+      const result = await enablePush(account.config.pushPublicKey); account.subscribed = true;
+      toast(result.scheduled ? 'შეტყობინებები ჩაირთო ♡ შეგიძლია გაგზავნო ტესტი.' : 'მოწყობილობა შეინახა. დაგეგმვის განახლება ჯერ საჭიროა.');
+    } else if (action === 'disable-push') { await disablePush(); account.subscribed = false; toast('ამ მოწყობილობაზე შეტყობინებები გამოირთო.'); }
+    else {
+      const subscription = await currentSubscription();
+      if (!subscription) throw new Error('ჯერ ჩართე შეტყობინებები.');
+      await accountRequest('push', 'POST', { action:action === 'test-push' ? 'test' : 'retry', endpoint:subscription.endpoint });
+      toast(action === 'test-push' ? 'ტესტი შეტყობინებების სერვისს გადაეცა ♡' : 'შეხსენებების დაგეგმვა განახლდა.');
+    }
+  } catch (error) { toast(error.message); }
+  finally { account.pushBusy = false; button.disabled = false; if (view === 'profile' && !dialog.open) render(); }
+}
+function downloadData() {
+  const blob = new Blob([JSON.stringify({ ...data, timezone:account.timezone }, null, 2)], { type:'application/json' });
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `dediko-${localDate()}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+document.addEventListener('click', event => {
+  if (event.target.closest('[data-action="use-device-timezone"]')) {
+    account.timezone = browserZone(); save(); render(); toast('შეხსენებების დროის სარტყელი განახლდა.');
+  }
+});
+window.addEventListener('beforeunload', event => { if (account.dirty) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('online', () => { if (account.dirty && !account.conflict) { account.status = 'saving'; flushCloudSave(); } });
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible' || !account.user || account.dirty || saveRunning || demo || dialog.open || document.activeElement?.closest('form')) return;
+  try {
+    const result = await accountRequest('account');
+    if (result.revision !== account.revision) { adoptAccount(result); if (!data.profile) view = 'landing'; render(); }
+  } catch (error) { if (error.status === 401) { clearAccountSession(); toast('შენი სესია დასრულდა ან ანგარიში შეიცვალა. ხელახლა შედი.'); } }
+});
+function clearAccountSession() {
+  clearTimeout(saveTimer);
+  try { if (draftKey()) localStorage.removeItem(draftKey()); } catch { /* Clear the in-memory account too. */ }
+  setAccountOwner(null); account.user = null; account.dirty = false; account.conflict = false; account.subscribed = false;
+  data = load(); demo = false; view = 'landing'; if (dialog.open) dialog.close(); render();
+}
+window.addEventListener('storage', event => { if (event.key === 'dediko.signed-out' && account.user) clearAccountSession(); });
 render();
-if(view==='ideas')loadIdeas();
-if(view==='landing'&&location.hash==='#team')document.querySelector('#team')?.scrollIntoView();
+initializeAccount();
+if ('serviceWorker' in navigator && window.isSecureContext) serviceWorkerReady().catch(() => {});

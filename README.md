@@ -1,70 +1,56 @@
 # Dediko
 
-Georgian-language local prototype for pregnant people and new mothers, using the supplied pink, blue and lavender logo palette.
+Georgian platform for pregnancy and early motherhood, using the supplied pink, blue and lavender palette. Vanilla JavaScript frontend, Vercel Functions, managed Neon Auth/Postgres, and Web Push.
 
-## Run
+## Run and validate
 
-Requires Node.js 20.11 or newer.
+Use Node.js 24+ locally (Vercel uses Node.js 26). Install with `npm ci`, then `npm run dev` and open http://localhost:5173. The custom dev server bundles the browser SDK and adapts the same Web API handlers. Public pages work without backend configuration; accounts require the provisioned environment.
 
-```sh
-npm install
-npm run dev
-```
+- `npm run check`: syntax, reminder/timezone/DST, validation, security boundaries and existing feature tests.
+- `npm run build`: production browser bundle and explicit public-file whitelist in `dist`.
+- `npm run db:migrate`: idempotent Dediko schema creation; run after linking/provisioning, never during a static build.
+- `npm run verify:accounts`: real managed signup, independent login sessions, data isolation, conflicts, session revocation, device ownership, and worker idempotency. Uses temporary accounts and cleans them up. Pass a deployment origin to exercise HTTP.
+- `node scripts/verify-account-ui.mjs [origin]`: built SDK and DOM/event flow through the real API: signup, explicit legacy import, reminders, profile stage change, conflict recovery, and logout. Requires a running local server by default. This is not browser layout testing.
+- `node scripts/verify-queue.mjs [origin]`: deployed Queue producer and callback verification with a temporary database job and no device subscription. Does not send a phone notification.
 
-Open http://localhost:5173. Run `npm run check` for JavaScript syntax and reminder recurrence tests.
+Verification scripts load ignored `.env.local` and never print credentials. Only run them against the linked Dediko test/production database intentionally; they create clearly named temporary test users.
 
-## Deploy on Vercel
+## Vercel setup
 
-Import `tavdo/dediko` into Vercel and deploy the `main` branch. The checked-in `vercel.json` configures the project as a static site:
+GitHub `tavdo/dediko`, production project `dediko`, public https://dediko.vercel.app. Framework: Other, build: `npm run build`, output: `dist`, root: repository root. Root `api/*.js` files export Web Request/Response handlers.
 
-- Framework preset: Other
-- Build command: `npm run build`
-- Output directory: `dist`
-- Root directory: repository root
-- Storage: the Ideas API needs a connected private Vercel Blob store. Vercel injects `BLOB_READ_WRITE_TOKEN` automatically. Keep it server-side; it is never part of the static build. Local development uses `.local/ideas.json` instead.
+Connected resources: managed Neon Auth + Postgres `dediko-accounts`, and private Blob `dediko-ideas`. The Marketplace provisions database/auth variables. Server-only variables are listed without values in `.env.example`; only the VAPID public key and readiness flag are exposed by `/api/config`. Never put database URLs, session signing keys, private VAPID keys or Blob tokens in the browser build.
 
-Run `npm run build` locally to generate the same static output. Only runtime files and assets are copied; local screenshots, development scripts and tests are excluded from the deployed site.
+Provision first, link the correct project, pull environment variables, then migrate. `scripts/provision-push.mjs` is a one-time setup utility for this project: generates random cookie/cron keys and VAPID keys, writes the ignored local environment, and passes values to Vercel CLI over stdin. It does not print values and does not overwrite existing Vercel variables. Keep separate resources/credentials for previews; the production origin is intentionally restricted to Dediko's public domain.
 
-## Implemented
+In Neon Auth's trusted domains, add `https://dediko.vercel.app`. Email/password accounts and sessions are managed by Neon, not handwritten password storage. Optional email verification uses numeric OTP; password reset returns to Dediko. The current provider uses Neon's shared email sender. Before a broad public launch, configure a custom SMTP sender in Neon for delivery limits and branding; verification links require a custom sender. See [Neon's production checklist](https://neon.com/docs/auth/production-checklist).
 
-- Responsive landing page with the original supplied logo.
-- Floating glass pill navigation on mobile, with four primary controls and a bottom-sheet menu for the remaining destinations. Uses safe-area insets, hides during dialogs/text entry, and reserves page/toast space above the dock.
-- Local onboarding: name, pregnancy/new mother stage, expected due date or baby's birth date.
-- Stage-specific suggested reminders; optional switches, editable time, date and recurrence.
-- Personal reminders with categories, daily/weekly/one-time recurrence, editing, deletion and completion per occurrence.
-- Today/all/personal/suggested filters and today's progress.
-- Profile editing; switching stage retains personal reminders and hides the previous stage's suggestions without deleting them.
-- Demo space that does not persist its changes.
-- Browser-local persistence with `localStorage`.
-- Video library for each profile stage: three pregnancy lessons and three new-mother lessons, with category/search filters and manually marked watched progress.
-- Embedded Vimeo/YouTube playback, original-provider fallback links, and visible source/language attribution.
-- Personal video links with stage, category, description and language; adding, editing, deleting and watched progress are stored in the browser.
+## Personal accounts and synchronization
 
-## Video lessons
+Registration collects email/password (12–128 characters), name, pregnancy/new-mother stage and expected due date/baby's birth date. Stage and date remain editable from the profile. Login, logout, email confirmation, password reset and second-device restoration are implemented.
 
-The shared initial catalog is defined in `publishedLessons` in `lessons.js`. It contains six English-language videos published and embedded by [Chelsea and Westminster Hospital NHS Foundation Trust](https://www.chelwest.nhs.uk/services/maternity/antenatal-education/additional-videos-and-resources). The original provider hosts each video; Dediko does not download or rehost them. Each card and player show the source and language.
+Profiles, reminders, personal video links, watched progress, weekly plans and notes are stored privately in Postgres. APIs derive the user ID from a freshly checked managed session and require same-origin writes. An expected-account header prevents a tab with an old account from writing into a newly signed-in account. Database queries are parameterized, with user-scoped keys. No database credentials or direct database access are provided to browsers.
 
-To publish a Georgian-language or other shared lesson for everyone, add its title, stage (`pregnant` or `mother`), category, YouTube/Vimeo URL, language and attribution to that catalog, then deploy. The in-app “My video” form saves a personal link only; it is not a shared administrative publishing system.
+The original browser-local space remains available until its owner chooses to import it during onboarding. Import is explicit and is offered only for an empty cloud profile. The old copy is removed after successful cloud persistence. A separate demo stays unsaved.
 
-Only explicit YouTube/Vimeo video URLs can generate iframe sources. YouTube uses its privacy-enhanced player, Vimeo uses `dnt=1`, and the player loads after a user chooses a lesson. Closing the dialog removes the iframe to stop playback. A direct video link remains available if a provider disables embedding or the network blocks playback. Existing profiles migrate without discarding reminders.
+Saves use optimistic revisions. A stale device receives a conflict instead of overwriting newer data; the UI offers an unsaved-data download and explicit reload of the account copy. Pending drafts are scoped to the account in localStorage, removed after save/logout, and restored with a retry/conflict prompt. Signed-out cloud documents are not kept as a normal local profile. Online/focus events retry or refresh when there are no active edits. Multi-tab logout clears the in-memory account.
 
-## Dediko Pro demo
+## Phone notifications
 
-Open `/?page=pro` for the public package comparison. Free keeps all existing reminders and videos. Pro's proposed price is **19 GEL per month**, displayed as a planned price, not an available paid offer.
+Profile → notifications → enable on this device. Browser permission is requested only after a button click. Each device subscribes independently, with opt-out and a rate-limited test button. Signing out removes this installation's subscription. Android/desktop require a supported browser; iPhone/iPad require iOS 16.4+ and opening Dediko from the Home Screen. The profile explains Share → Add to Home Screen. A manifest, app icons and service worker support this installation flow; private pages/APIs are not cached by the worker.
 
-The current implementation offers a **seven-day browser-local demo trial** without a card, billing, automatic renewal or real subscription. It includes stage-specific weekly planner templates, custom editable tasks, completion tracking, weekly notes, a lesson learning path, and `.ics` calendar export of enabled reminders. The calendar file uses floating local times, daily/weekly recurrence, UTF-8 line folding and escaped text; importing it is a snapshot, not ongoing calendar synchronization.
+The server sends encrypted Web Push using VAPID. Notification text is generic and contains no reminder titles, pregnancy dates, baby details or notes. Clicking opens the signed-in reminders view. Expired (404/410) subscriptions are removed. Device endpoints are restricted to supported browser push services to prevent arbitrary server requests.
 
-The trial and planner are preserved across reloads. Stage changes retain both sets of tasks and notes. Completing or cancelling the trial preserves the data and closes Pro actions; it cannot be restarted within the retained local profile. This is a prototype convenience gate, **not secure subscription authorization**. Clearing browser storage resets it.
+Vercel Queues delivers one-time/daily/weekly reminders in the account's IANA timezone, including DST changes. A five-day checkpoint keeps distant reminders within Queue retention. Revision/job checks discard edited, deleted, completed, disabled or obsolete-stage jobs. A per-device occurrence ledger prevents duplicate retries; stable notification tags also collapse repeated display. Transient failures retry, and successful recurring reminders advance to their next occurrence. The database outbox records unpublished jobs; save/subscribe/retry actions publish them and a secret-authenticated daily cron retries pending jobs. Daily recovery is compatible with the current Hobby plan.
 
-Before paid launch, implement authenticated accounts and server-side storage, a payment-provider checkout, verified payment webhooks, server-side entitlement checks, and actual subscription cancellation/refund handling. No paid customers or payment details are collected by this version.
+Queues are at-least-once and push providers/operating systems control final delivery. A network failure after provider acceptance can produce a retry; a reminder more than an hour late is skipped. Focus mode, connectivity, revoked permissions, or OS limits can delay delivery. Physical iPhone/Android receipt requires the owner's permission and an actual device; use the in-profile test button to validate that final step. This feature sends browser Push, not SMS.
 
-## Scope
+## Other features
 
-Profiles, reminders and Pro remain browser-local prototypes without password login, cross-device sync, email, push, or background notification delivery. The Ideas board is a shared backend feature, described below. Reminders are displayed in the site. Suggested reminders concern general organization and self-care; they are not clinical schedules or medical advice. Medical appointments are entered by the user.
-
-The pregnancy due date and child's birth date personalize the selected stage's display. More detailed suggestions by pregnancy week or child age require approved content and are not implemented yet.
-
-Google Fonts supplies Noto Sans Georgian when online; a system sans-serif fallback works offline. Video playback uses the original providers; the shared Ideas board requires the online API.
+- Stage-specific self-care suggestions, personal reminder CRUD, categories and completion per occurrence. Suggestions are organizational, not clinical schedules.
+- Six original-provider NHS videos split by stage, with source/language attribution, search, categories, watched progress, and private YouTube/Vimeo links. Shared catalog: `publishedLessons` in `lessons.js`. Players open only on request and are removed on dialog close.
+- Seven-day Pro demo: weekly plans/templates, private notes, learning path and ICS export. Proposed price remains 19 GEL/month; no payments, automatic renewal or paid entitlement are implemented. Stored demo state is not trusted authorization for a subscription. Calendar export is a floating-time snapshot.
+- Shared Ideas board (below), team cards, responsive pink/blue/lavender design, and mobile glass navigation with safe-area spacing and menu sheet.
 
 ## Shared ideas board
 
@@ -80,7 +66,7 @@ The local dev server uses a serialized, ignored `.local/ideas.json` file and the
 
 Run `node scripts/verify-ideas.mjs` with the dev server running to verify two independent HTTP sessions; pass a deployment origin as its argument to verify deployment storage. It creates a clearly marked test idea, verifies cross-session visibility and votes, then removes its own test content. `npm run check` covers API validation, origin/body limits, privacy, votes, conflicts, moderation and existing features.
 
-`@vercel/cli-config` is pinned through an override to the patched 0.3.7 release because the Blob SDK's OIDC dependency otherwise resolved a vulnerable older transitive version.
+`@vercel/cli-config`, Better Auth, Zod and minimatch are pinned to patched releases through overrides. The SDK also installs unused React/email UI dependencies: npm audit currently reports seven low-severity findings through their unpatched deepmerge dependency. These UI/email renderer modules are not imported into the application or browser bundle.
 
 ## Source
 

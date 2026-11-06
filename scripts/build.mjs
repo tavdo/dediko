@@ -1,10 +1,12 @@
 import { cp, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { build } from 'esbuild';
 
 const root = resolve(import.meta.dirname, '..');
 const output = resolve(root, 'dist');
 await mkdir(output, { recursive: true });
-for (const file of ['index.html', 'styles.css', 'lessons.css', 'pro.css', 'ideas.css', 'team.css', 'mobile-nav.css', 'app.js', 'model.js', 'lessons.js', 'pro.js', 'ideas.js', 'assets']) {
+for (const file of ['index.html', 'styles.css', 'lessons.css', 'pro.css', 'ideas.css', 'team.css', 'mobile-nav.css', 'account.css', 'manifest.webmanifest', 'sw.js', 'assets']) {
   await cp(resolve(root, file), resolve(output, file), { recursive: true });
 }
+await build({ entryPoints: [resolve(root, 'app.js')], bundle: true, format: 'esm', target: 'es2022', minify: true, outfile: resolve(output, 'app.js') });
 console.log('Built Dediko static site in dist/');

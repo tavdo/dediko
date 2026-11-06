@@ -1,0 +1,18 @@
+.account-status { padding:12px 18px; border:1px solid #e8def2; border-radius:16px; background:#faf7ff; display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:12px; margin-bottom:20px; }
+.account-status.is-error { background:#fff3f6; border-color:#efb7ce; }
+.account-status p { margin:0; flex:1 1 200px; }
+.account-status button { font-size:12px; }
+.account-panel { border-top:1px solid #eee7f5; margin-top:26px; padding-top:24px; }
+.account-panel h3 { font-size:18px; margin:0 0 10px; }
+.account-panel p { color:var(--text-muted,#777084); line-height:1.9; font-size:13px; overflow-wrap:anywhere; }
+.account-panel .button { margin:5px 8px 5px 0; }
+.auth-switch { text-align:center; margin:18px 0 0; }
+.auth-switch button { color:#8a59a0; border:0; background:none; text-decoration:underline; cursor:pointer; font:inherit; font-size:13px; padding:8px; }
+.auth-help { margin-top:14px; font-size:12px; line-height:1.8; color:#797080; }
+.auth-honeypot { position:absolute; left:-10000px; }
+.account-email { color:#82718f; font-size:13px; }
+.notification-state { display:inline-block; background:#f3eafa; border-radius:24px; padding:5px 12px; font-size:12px; }
+.timezone-note { font-size:12px; color:#7e728b; }
+.auth-loading { min-height:75vh; display:grid; place-content:center; text-align:center; padding:24px; }
+.auth-loading h1 { color:#b360a0; }
+@media(max-width:600px) { .account-panel .button { width:100%; margin-right:0; } .account-status { padding:12px; } }

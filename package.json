@@ -4,15 +4,33 @@
   "private": true,
   "type": "module",
   "overrides": {
-    "@vercel/cli-config": "0.3.7"
+    "@vercel/cli-config": "0.3.7",
+    "better-auth": "1.7.18",
+    "@better-auth/core": "1.7.18",
+    "@better-auth/oauth-provider": "1.7.18",
+    "@better-auth/drizzle-adapter": "1.7.18",
+    "zod": "4.6.7",
+    "minimatch": "11.0.5",
+    "deepmerge": "4.3.1"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "node scripts/serve.mjs",
     "start": "node scripts/serve.mjs",
-    "check": "node --check app.js && node --check api/ideas.js && node --test scripts/model.test.mjs scripts/lessons.test.mjs scripts/pro.test.mjs scripts/ideas.test.mjs"
+    "check": "node --check app.js && node --check account-client.js && node --check sw.js && node --test scripts/*.test.mjs",
+    "db:migrate": "node scripts/migrate.mjs",
+    "verify:accounts": "node scripts/verify-accounts.mjs"
   },
   "dependencies": {
-    "@vercel/blob": "2.8.2"
+    "@js-temporal/polyfill": "0.5.1",
+    "@neondatabase/auth": "0.7.0-beta",
+    "@neondatabase/serverless": "1.2.0",
+    "@vercel/blob": "2.8.2",
+    "@vercel/queue": "0.11.0",
+    "web-push": "4.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "linkedom": "0.18.15"
   }
 }
