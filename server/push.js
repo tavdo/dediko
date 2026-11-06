@@ -30,7 +30,8 @@ export async function queueSchedule(row) {
     region: 'iad1', delaySeconds: Math.min(chunk, Math.ceil(remaining / 1000)), retentionSeconds: 7 * 86400,
     idempotencyKey: `${row.job_key}:${target}:${Math.ceil(remaining / (chunk * 1000))}`
   });
-  await db()`update dediko.schedules set queued = true where user_id = ${row.user_id} and reminder_id = ${row.reminder_id} and job_key = ${row.job_key}::uuid and next_at = ${row.next_at}`;
+  // Postgres retains microseconds; the HTTP driver and Queue JSON use milliseconds.
+  await db()`update dediko.schedules set queued = true where user_id = ${row.user_id} and reminder_id = ${row.reminder_id} and job_key = ${row.job_key}::uuid and date_trunc('milliseconds', next_at) = ${row.next_at}::timestamptz`;
 }
 export async function flushSchedules(userId = null) {
   const sql = db();
@@ -74,7 +75,7 @@ export async function processReminder(message, { deliverFn = deliver, queueFn = 
   const next = reminder ? nextTime(reminder, row.timezone, Math.max(Date.now(), due + 1000)) : null;
   if (next && devices.length) {
     const [advanced] = await sql`update dediko.schedules set next_at = ${next}::timestamptz, queued = false
-      where user_id = ${row.user_id} and reminder_id = ${row.reminder_id} and job_key = ${row.job_key}::uuid and next_at = ${row.next_at} returning *`;
+      where user_id = ${row.user_id} and reminder_id = ${row.reminder_id} and job_key = ${row.job_key}::uuid and date_trunc('milliseconds', next_at) = ${row.next_at}::timestamptz returning *`;
     if (advanced) await queueFn(advanced);
-  } else await sql`delete from dediko.schedules where user_id = ${row.user_id} and reminder_id = ${row.reminder_id} and job_key = ${row.job_key}::uuid and next_at = ${row.next_at}`;
+  } else await sql`delete from dediko.schedules where user_id = ${row.user_id} and reminder_id = ${row.reminder_id} and job_key = ${row.job_key}::uuid and date_trunc('milliseconds', next_at) = ${row.next_at}::timestamptz`;
 }

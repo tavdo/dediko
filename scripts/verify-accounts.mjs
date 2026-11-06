@@ -99,6 +99,12 @@ try {
   await a.first.request('push','POST',{action:'unsubscribe',endpoint:subscription.endpoint});
   assert.equal((await a.first.request('push','POST',{action:'status',endpoint:subscription.endpoint})).body.subscribed,false);
   console.log('PASS: opt-out removes device and its future reminders.');
+  const precisionKey=randomUUID();
+  const [precision]=await sql`insert into dediko.schedules(user_id,reminder_id,signature,job_key,next_at,queued)
+    values(${a.id},'precision-check','test',${precisionKey}::uuid,now()-interval '2 hours',true) returning next_at`;
+  await processReminder({userId:a.id,reminderId:'precision-check',jobKey:precisionKey,scheduledAt:new Date(precision.next_at).toISOString()},deps);
+  assert.equal((await sql`select reminder_id from dediko.schedules where user_id=${a.id} and reminder_id='precision-check'`).length,0);
+  console.log('PASS: expired jobs with Postgres microsecond timestamps are finalized correctly.');
 } finally {
   for (const userId of users) {
     await sql`delete from dediko.accounts where user_id=${userId}`;
