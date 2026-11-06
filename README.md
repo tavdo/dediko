@@ -34,6 +34,17 @@ Run `npm run build` locally to generate the same static output. Only runtime fil
 - Profile editing; switching stage retains personal reminders and hides the previous stage's suggestions without deleting them.
 - Demo space that does not persist its changes.
 - Browser-local persistence with `localStorage`.
+- Video library for each profile stage: three pregnancy lessons and three new-mother lessons, with category/search filters and manually marked watched progress.
+- Embedded Vimeo/YouTube playback, original-provider fallback links, and visible source/language attribution.
+- Personal video links with stage, category, description and language; adding, editing, deleting and watched progress are stored in the browser.
+
+## Video lessons
+
+The shared initial catalog is defined in `publishedLessons` in `lessons.js`. It contains six English-language videos published and embedded by [Chelsea and Westminster Hospital NHS Foundation Trust](https://www.chelwest.nhs.uk/services/maternity/antenatal-education/additional-videos-and-resources). The original provider hosts each video; Dediko does not download or rehost them. Each card and player show the source and language.
+
+To publish a Georgian-language or other shared lesson for everyone, add its title, stage (`pregnant` or `mother`), category, YouTube/Vimeo URL, language and attribution to that catalog, then deploy. The in-app “My video” form saves a personal link only; it is not a shared administrative publishing system.
+
+Only explicit YouTube/Vimeo video URLs can generate iframe sources. YouTube uses its privacy-enhanced player, Vimeo uses `dnt=1`, and the player loads after a user chooses a lesson. Closing the dialog removes the iframe to stop playback. A direct video link remains available if a provider disables embedding or the network blocks playback. Existing profiles migrate without discarding reminders.
 
 ## Scope
 
