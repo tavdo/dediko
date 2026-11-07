@@ -58,7 +58,7 @@ Open `/?page=ideas`. Both Free/Pro users and visitors can submit an idea, choose
 
 `api/ideas.js` is a Node.js Web API function backed by a private Vercel Blob JSON object. ETag conditional writes and conflict retries protect concurrent changes. Votes use idempotent desired-state updates. An HTTP-only, Secure, SameSite cookie identifies a browser; public responses omit raw identifiers, voter lists and submission activity. One vote per browser is not verified one-person voting; clearing cookies or using another browser creates a separate identity. No real-account authentication is implied.
 
-Roadmap changes and team replies are controlled in `server/idea-statuses.js`. Add an idea's full ID (returned by `/api/ideas`) with `{status:'planned', reply:'...'}` and deploy. Allowed statuses: `reviewing`, `planned`, `inprogress`, `completed`. Use `{hidden:true}` to moderate an inappropriate submission. Visitors cannot change roadmap statuses through the API. An author may withdraw an idea before other browsers support it.
+Admins can update an idea's status, post a team reply, or hide and restore it from the management panel. Existing entries in `server/idea-statuses.js` serve as the initial settings until an admin saves a change. Visitors can vote, and authors can withdraw ideas before other browsers support them.
 
 Initial board capacity is 250 ideas, 250 browser votes per idea, and a 3 MB private object. Creation is limited to five ideas per browser in 24 hours and 120 changes per hour. These are small-community safeguards, not authenticated anti-abuse controls; move to transactional database storage and stronger identity controls as the community grows. Nothing is stored in ephemeral Function memory as the source of truth.
 
@@ -67,6 +67,14 @@ The local dev server uses a serialized, ignored `.local/ideas.json` file and the
 Run `node scripts/verify-ideas.mjs` with the dev server running to verify two independent HTTP sessions; pass a deployment origin as its argument to verify deployment storage. It creates a clearly marked test idea, verifies cross-session visibility and votes, then removes its own test content. `npm run check` covers API validation, origin/body limits, privacy, votes, conflicts, moderation and existing features.
 
 `@vercel/cli-config`, Better Auth, Zod and minimatch are pinned to patched releases through overrides. The SDK also installs unused React/email UI dependencies: npm audit currently reports seven low-severity findings through their unpatched deepmerge dependency. These UI/email renderer modules are not imported into the application or browser bundle.
+
+## Admin panel
+
+Apply the schema with `npm run db:migrate` before releasing the admin routes. Open `/admin` and sign in with a Dediko account that has a verified email and an explicit grant. The link also appears in the profile for admins.
+
+Run `node scripts/admin-access.mjs grant email@example.com` against the intended database after the account owner verifies their email. The grant is stored against the account ID. Use `revoke` with the same email to remove access.
+
+The overview shows aggregate counts for completed profiles, published videos and visible ideas. Admins can save or publish shared videos for either stage and manage ideas. Published changes become available on the next catalog or board load. Built-in lesson IDs stay stable so existing watched progress follows the lesson. Idea moderation uses the same ideas store as the public board in each environment.
 
 ## Source
 

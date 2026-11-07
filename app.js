@@ -42,6 +42,7 @@ let beforeDemoData = null;
 let toastTimer;
 let lessonFilter = 'all';
 let lessonSearch = '';
+const publicCatalog = { lessons: [], status: 'idle' };
 let plannerWeek = weekStart();
 let pendingProTrial = false;
 let renderedDate = localDate();
@@ -124,7 +125,50 @@ function dashboard() {
 }
 
 function currentLessons() {
-  return lessonsForStage(data.profile.stage, data.lessons);
+  return lessonsForStage(data.profile.stage, data.lessons, publicCatalog.lessons);
+}
+
+function catalogStatus() {
+  if (publicCatalog.status === 'ready') return '';
+  if (publicCatalog.status === 'error') return '<p role="alert">საერთო ვიდეოები ვერ ჩაიტვირთა. <button class="text-button" data-action="reload-catalog">ხელახლა ცდა</button></p>';
+  return '<p role="status">საერთო ვიდეოები იტვირთება…</p>';
+}
+
+function lessonProgress() {
+  const lessons = currentLessons();
+  const watched = lessons.filter(lesson => data.completedLessons.includes(lesson.id)).length;
+  return `${watched} <small>/ ${lessons.length}</small>`;
+}
+
+function plannerLessons() {
+  const lessons = currentLessons().filter(lesson => !lesson.personal);
+  return catalogStatus() + lessons.map((lesson, index) =>
+    `<button class="learning-path-item" data-action="watch-lesson" data-id="${escape(lesson.id)}"><span>${data.completedLessons.includes(lesson.id) ? icon('check') : String(index + 1).padStart(2, '0')}</span><strong>${escape(lesson.title)}</strong>${icon('play')}</button>`
+  ).join('');
+}
+
+function refreshCatalogView() {
+  const results = document.querySelector('#lesson-results');
+  if (results) {
+    results.innerHTML = lessonResults();
+    document.querySelector('.lesson-progress strong').innerHTML = lessonProgress();
+  }
+  const path = document.querySelector('#planner-lessons');
+  if (path) path.innerHTML = plannerLessons();
+}
+
+async function loadPublicLessons() {
+  if (publicCatalog.status === 'loading') return;
+  publicCatalog.status = 'loading';
+  refreshCatalogView();
+  try {
+    const { lessons } = await accountRequest('lessons');
+    publicCatalog.lessons = lessons;
+    publicCatalog.status = 'ready';
+  } catch {
+    publicCatalog.status = 'error';
+  }
+  refreshCatalogView();
 }
 
 function lessonCard(lesson, index) {
@@ -151,14 +195,12 @@ function lessonResults() {
   const filtered = all.filter(lesson =>
     (lessonFilter === 'all' || (lessonFilter === 'watched' ? data.completedLessons.includes(lesson.id) : lesson.category === lessonFilter)) &&
     `${lesson.title} ${lesson.description || ''} ${lesson.source}`.toLocaleLowerCase('ka-GE').includes(search));
-  return `<p class="lesson-result-count" role="status">${filtered.length} ვიდეოგაკვეთილი</p><div class="lesson-grid">${filtered.length ? filtered.map(lesson => lessonCard(lesson, all.indexOf(lesson))).join('') : `<div class="empty-state lesson-empty">${icon('play')}<h2>${lessonFilter === 'watched' && !search ? 'პირველი გაკვეთილი წინ გელოდება' : 'გაკვეთილი ვერ მოიძებნა'}</h2><p>${lessonFilter === 'watched' && !search ? 'ყურების შემდეგ მონიშნე ვიდეო ნანახად — აქ შენი პროგრესი გამოჩნდება.' : 'შეცვალე საძიებო სიტყვა ან აირჩიე სხვა კატეგორია.'}</p><button class="text-button" data-action="reset-lesson-filter">ყველა გაკვეთილის ნახვა ${icon('arrow')}</button></div>`}</div>`;
+  return catalogStatus() + `<p class="lesson-result-count" role="status">${filtered.length} ვიდეოგაკვეთილი</p><div class="lesson-grid">${filtered.length ? filtered.map(lesson => lessonCard(lesson, all.indexOf(lesson))).join('') : publicCatalog.status === 'ready' ? `<div class="empty-state lesson-empty">${icon('play')}<h2>${lessonFilter === 'watched' && !search ? 'პირველი გაკვეთილი წინ გელოდება' : 'გაკვეთილი ვერ მოიძებნა'}</h2><p>${lessonFilter === 'watched' && !search ? 'ყურების შემდეგ მონიშნე ვიდეო ნანახად — აქ შენი პროგრესი გამოჩნდება.' : 'შეცვალე საძიებო სიტყვა ან აირჩიე სხვა კატეგორია.'}</p><button class="text-button" data-action="reset-lesson-filter">ყველა გაკვეთილის ნახვა ${icon('arrow')}</button></div>` : ''}</div>`;
 }
 
 function lessonsView() {
-  const lessons = currentLessons();
-  const watched = lessons.filter(lesson => data.completedLessons.includes(lesson.id)).length;
   return `<div class="dashboard-title"><div><span class="eyebrow">ისწავლე შენი ტემპით</span><h1>ვიდეოგაკვეთილები <span>♡</span></h1><p>${data.profile.stage === 'pregnant' ? 'პატარას მოლოდინში — ცოდნა მეტი სიმშვიდისთვის.' : 'პირველი დღეები ერთად — აღმოაჩინე შენი ახალი ყოველდღიურობა.'}</p></div><button class="button" data-action="add-lesson">${icon('plus')} ჩემი ვიდეოს დამატება</button></div>
-    <section class="lesson-intro ${data.profile.stage === 'mother' ? 'lesson-intro-blue' : ''}"><div><span class="tag">${icon(data.profile.stage === 'pregnant' ? 'heart' : 'baby')} ${stageName(data.profile.stage)}</span><h2>ცოტა მეტი ცოდნა.<br>ცოტა მეტი თავდაჯერება.</h2><p>შენს ეტაპზე მორგებული ვიდეოები, ერთ მშვიდ სივრცეში.</p></div><div class="lesson-progress"><span>${icon('play')}</span><strong>${watched} <small>/ ${lessons.length}</small></strong><p>გაკვეთილი მონიშნულია ნანახად</p></div></section>
+    <section class="lesson-intro ${data.profile.stage === 'mother' ? 'lesson-intro-blue' : ''}"><div><span class="tag">${icon(data.profile.stage === 'pregnant' ? 'heart' : 'baby')} ${stageName(data.profile.stage)}</span><h2>ცოტა მეტი ცოდნა.<br>ცოტა მეტი თავდაჯერება.</h2><p>შენს ეტაპზე მორგებული ვიდეოები, ერთ მშვიდ სივრცეში.</p></div><div class="lesson-progress"><span>${icon('play')}</span><strong>${lessonProgress()}</strong><p>გაკვეთილი მონიშნულია ნანახად</p></div></section>
     <div class="lesson-source-note">${icon('spark')}<p>საწყისი ვიდეოები NHS-ის ოფიციალური ბიბლიოთეკიდანაა და ინგლისურენოვანია. ყოველ გაკვეთილთან მითითებულია წყარო და ენა.</p></div>
     <section class="lesson-library" aria-label="ვიდეოების ბიბლიოთეკა"><div class="lesson-toolbar"><div class="tabs lesson-tabs" role="group" aria-label="გაკვეთილების კატეგორია">${[{ id: 'all', label: 'ყველა' }, ...lessonCategories(data.profile.stage), { id: 'watched', label: 'ნანახი' }].map(category => `<button data-action="lesson-filter" data-filter="${category.id}" class="${lessonFilter === category.id ? 'selected' : ''}" aria-pressed="${lessonFilter === category.id}">${category.label}</button>`).join('')}</div><label class="lesson-search">${icon('search')}<input type="search" name="lessonSearch" aria-label="გაკვეთილის ძიება" placeholder="მოძებნე გაკვეთილი" value="${escape(lessonSearch)}" maxlength="100"></label></div><div id="lesson-results">${lessonResults()}</div></section>`;
 }
@@ -181,7 +223,7 @@ function submitLesson(form, values) {
   if (!values.title.trim()) { error.textContent = 'მიუთითე ვიდეოს სათაური.'; return; }
   if (!video) { error.textContent = 'მიუთითე კონკრეტული YouTube ან Vimeo ვიდეოს სრული ბმული.'; return; }
   if (!lessonCategories(values.lessonStage).some(category => category.id === values.lessonCategory) || !['pregnant', 'mother'].includes(values.lessonStage)) return;
-  const duplicate = lessonsForStage(values.lessonStage, data.lessons).some(lesson => lesson.id !== form.dataset.id && parseVideoUrl(lesson.url)?.url === video.url);
+  const duplicate = lessonsForStage(values.lessonStage, data.lessons, publicCatalog.lessons).some(lesson => lesson.id !== form.dataset.id && parseVideoUrl(lesson.url)?.url === video.url);
   if (duplicate) { error.textContent = 'ეს ვიდეო ამ ეტაპის ბიბლიოთეკაში უკვე დამატებულია.'; return; }
   const existing = data.lessons.find(lesson => lesson.id === form.dataset.id);
   const fields = { title: values.title.trim(), description: values.description.trim(), url: video.url, stage: values.lessonStage, category: values.lessonCategory, language: values.language, personal: true, source: 'პირადი ბიბლიოთეკა' };
@@ -295,7 +337,7 @@ function plannerView() {
   return `<div class="dashboard-title"><div><span class="pro-label">${icon('spark')} DEDIKO PRO · საცდელი</span><h1>შენი მშვიდი კვირა <span>♡</span></h1><p>პატარა გეგმები, მეტი თავისუფალი სივრცე.</p></div><button class="button" data-action="export-calendar">${icon('calendar')} კალენდარში ექსპორტი</button></div>
     <div class="planner-status"><span>${stageName(data.profile.stage)} · საცდელად დარჩა ${trialStatus(data.pro).daysLeft} დღე</span><button class="text-button" data-action="pro">პაკეტის ნახვა ${icon('arrow')}</button></div>
     <section class="weekly-panel"><div class="week-heading"><div class="week-navigation"><button class="icon-button" data-action="previous-week" aria-label="წინა კვირა">←</button><h2>${formatDate(plannerWeek)} — ${formatDate(shiftDate(plannerWeek, 6), {year:'numeric'})}</h2><button class="icon-button" data-action="next-week" aria-label="შემდეგი კვირა">→</button></div><button class="text-button" data-action="current-week">მიმდინარე კვირა</button></div><div class="week-summary"><span>${completed} / ${tasks.length} გეგმა შესრულებულია</span><div><button class="text-button" data-action="apply-week-template">${icon('spark')} კვირის შაბლონი</button><button class="button button-small" data-action="add-planner-task">${icon('plus')} ახალი გეგმა</button></div></div><div class="planner-tasks">${tasks.length ? tasks.map(task => `<article class="planner-task ${task.done ? 'task-done' : ''}"><button class="complete-button ${task.done ? 'checked' : ''}" aria-pressed="${Boolean(task.done)}" aria-label="${escape(task.title)} — შესრულების შეცვლა" data-action="toggle-planner-task" data-id="${escape(task.id)}">${task.done ? icon('check') : ''}</button><div><strong>${escape(task.title)}</strong><span>${formatDate(task.date, {weekday:'long'})}</span></div><button class="icon-button" data-action="edit-planner-task" data-id="${escape(task.id)}" aria-label="გეგმის რედაქტირება: ${escape(task.title)}">${icon('edit')}</button></article>`).join('') : `<div class="empty-state">${icon('calendar')}<h3>შენი კვირის პირველი პატარა გეგმა</h3><p>აირჩიე შაბლონი ან დაამატე შენი საქმე.</p><button class="text-button" data-action="apply-week-template">კვირის შაბლონის დამატება ${icon('plus')}</button></div>`}</div></section>
-    <div class="planner-bottom"><section class="planner-note"><span class="eyebrow">მხოლოდ შენთვის</span><h2>კვირის პატარა ჩანაწერი</h2><form id="planner-notes-form"><label class="field"><span class="visually-hidden">კვირის ჩანაწერი</span><textarea name="note" rows="6" maxlength="2000" placeholder="რას გინდა დაუთმო დრო? რა კითხვები დაგიგროვდა?">${escape(data.plannerNotes[noteKey] || '')}</textarea></label><p>ჩანაწერი ამ კვირასა და შენს არჩეულ ეტაპს ეკუთვნის.</p><button type="submit" class="button button-small">ჩანაწერის შენახვა ${icon('check')}</button></form></section><section class="learning-path"><span class="eyebrow">ისწავლე შენი ტემპით</span><h2>შენი სასწავლო მარშრუტი</h2>${currentLessons().filter(lesson => !lesson.personal).map((lesson, index) => `<button class="learning-path-item" data-action="watch-lesson" data-id="${escape(lesson.id)}"><span>${data.completedLessons.includes(lesson.id) ? icon('check') : String(index + 1).padStart(2, '0')}</span><strong>${escape(lesson.title)}</strong>${icon('play')}</button>`).join('')}<p>ეს ვიდეოები უფასო ბიბლიოთეკაშიც ხელმისაწვდომია.</p></section></div><button class="delete-button" data-action="end-pro-trial">Pro-ს საცდელი რეჟიმის დასრულება</button>`;
+    <div class="planner-bottom"><section class="planner-note"><span class="eyebrow">მხოლოდ შენთვის</span><h2>კვირის პატარა ჩანაწერი</h2><form id="planner-notes-form"><label class="field"><span class="visually-hidden">კვირის ჩანაწერი</span><textarea name="note" rows="6" maxlength="2000" placeholder="რას გინდა დაუთმო დრო? რა კითხვები დაგიგროვდა?">${escape(data.plannerNotes[noteKey] || '')}</textarea></label><p>ჩანაწერი ამ კვირასა და შენს არჩეულ ეტაპს ეკუთვნის.</p><button type="submit" class="button button-small">ჩანაწერის შენახვა ${icon('check')}</button></form></section><section class="learning-path"><span class="eyebrow">ისწავლე შენი ტემპით</span><h2>შენი სასწავლო მარშრუტი</h2><div id="planner-lessons">${plannerLessons()}</div><p>ეს ვიდეოები უფასო ბიბლიოთეკაშიც ხელმისაწვდომია.</p></section></div><button class="delete-button" data-action="end-pro-trial">Pro-ს საცდელი რეჟიმის დასრულება</button>`;
 }
 
 function plannerTaskDialog(id) {
@@ -358,7 +400,9 @@ function render() {
     const panel = app.querySelector('.profile-panel');
     panel?.insertAdjacentHTML('beforeend', accountPanel());
     if (account.user) panel?.querySelector('[data-action="reset-profile"]')?.remove();
+    if (account.user?.admin) panel?.insertAdjacentHTML('beforeend', '<a class="button button-small" href="/admin">მართვის პანელი ↗</a>');
   }
+  if (['lessons', 'planner'].includes(view) && publicCatalog.status === 'idle') loadPublicLessons();
   if (view === 'landing') app.querySelector('.site-header')?.insertAdjacentHTML('beforeend', `<button class="text-button" data-action="${account.user ? 'dashboard' : 'login'}">${account.user ? 'ჩემი სივრცე' : 'შესვლა'}</button>`);
   document.title = `Dediko — ${view === 'landing' ? 'შენთან, დედობის ყოველ ნაბიჯზე' : view === 'ideas' ? 'იდეები Dediko-სთვის' : view === 'pro' ? 'Dediko Pro' : view === 'planner' ? 'ჩემი Pro გეგმა' : view === 'profile' ? 'ჩემი პროფილი' : view === 'lessons' ? 'ვიდეოგაკვეთილები' : 'ჩემი დღე'}`;
 }
@@ -456,6 +500,7 @@ document.addEventListener('click', event => {
     view = 'lessons'; lessonFilter = 'all'; lessonSearch = ''; render(); window.scrollTo(0, 0); return;
   }
   if (action === 'lesson-filter') { lessonFilter = button.dataset.filter; render(); return; }
+  if (action === 'reload-catalog') return loadPublicLessons();
   if (action === 'reset-lesson-filter') { lessonFilter = 'all'; lessonSearch = ''; render(); return; }
   if (action === 'add-lesson') return lessonDialog();
   if (action === 'edit-lesson') return lessonDialog(id);

@@ -36,4 +36,15 @@ create table if not exists dediko.push_deliveries (
   primary key(endpoint_hash, occurrence)
 );
 create index if not exists delivery_cleanup_idx on dediko.push_deliveries(created_at);
+create table if not exists dediko.admins (
+  user_id text primary key,
+  granted_at timestamptz not null default now()
+);
+create table if not exists dediko.lesson_overrides (
+  id text primary key,
+  lesson jsonb not null,
+  published boolean not null default false,
+  revision integer not null default 1 check (revision > 0),
+  created_at timestamptz not null default now()
+);
 revoke all on all tables in schema dediko from public;

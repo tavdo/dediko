@@ -17,7 +17,7 @@
     "build": "node scripts/build.mjs",
     "dev": "node scripts/serve.mjs",
     "start": "node scripts/serve.mjs",
-    "check": "node --check app.js && node --check account-client.js && node --check sw.js && node --test scripts/*.test.mjs",
+    "check": "node --check app.js && node --check admin.js && node --check account-client.js && node --check sw.js && node --test scripts/*.test.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "verify:accounts": "node scripts/verify-accounts.mjs"
   },

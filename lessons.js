@@ -40,8 +40,8 @@ export function parseVideoUrl(input) {
   return null;
 }
 
-export function lessonsForStage(stage, personalLessons = []) {
-  return [...publishedLessons, ...personalLessons].filter(lesson => lesson.stage === stage && parseVideoUrl(lesson.url));
+export function lessonsForStage(stage, personalLessons = [], catalog = publishedLessons) {
+  return [...catalog, ...personalLessons].filter(lesson => lesson.stage === stage && parseVideoUrl(lesson.url));
 }
 
 export function migrateLessonState(saved) {

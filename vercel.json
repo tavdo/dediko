@@ -3,7 +3,10 @@
   "framework": null,
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/api/auth/:path+", "destination": "/api/auth?path=:path+" }],
+  "rewrites": [
+    { "source": "/api/auth/:path+", "destination": "/api/auth?path=:path+" },
+    { "source": "/admin", "destination": "/admin.html" }
+  ],
   "functions": {
     "api/reminder-worker.js": { "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "dediko-reminders" }], "maxDuration": 120 }
   },

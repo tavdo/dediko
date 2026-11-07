@@ -12,10 +12,16 @@ const server = http.createServer(async (req, res) => {
   try {
     const path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
     if (path.startsWith('/api/') && path !== '/api/ideas') {
-      const routes = { account: '../api/account.js', auth: '../api/auth.js', push: '../api/push.js', config: '../api/config.js' };
-      const route = routes[path.split('/')[2]];
+      const routes = { account: '../api/account.js', admin: '../api/admin.js', auth: '../api/auth.js', push: '../api/push.js', config: '../api/config.js', lessons: '../api/lessons.js' };
+      const key = path.split('/')[2];
+      const route = Object.hasOwn(routes, key) ? routes[key] : null;
       if (!route) { res.writeHead(404); res.end(); return; }
-      const handlers = await import(route);
+      let handlers = await import(route);
+      if (key === 'admin') {
+        const { localIdeasStore } = await import('../server/local-ideas-store.js');
+        const handler = handlers.createAdminHandler(localIdeasStore);
+        handlers = { GET: handler, POST: handler };
+      }
       if (!handlers[req.method]) { res.writeHead(405); res.end(); return; }
       const request = new Request(`http://${req.headers.host}${req.url}`, { method: req.method, headers: req.headers, ...(!['GET','HEAD'].includes(req.method) ? { body: req, duplex: 'half' } : {}) });
       const response = await handlers[req.method](request);
@@ -29,12 +35,13 @@ const server = http.createServer(async (req, res) => {
       const response=await createIdeasHandler(localIdeasStore)(request);
       res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));return;
     }
-    if (path === '/app.js') {
-      const result = await build({ entryPoints:[resolve(root,'app.js')], bundle:true, format:'esm', target:'es2022', write:false });
+    if (path === '/app.js' || path === '/admin.js') {
+      const result = await build({ entryPoints:[resolve(root, '.' + path)], bundle:true, format:'esm', target:'es2022', write:false });
       res.writeHead(200, { 'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-cache' }); res.end(result.outputFiles[0].contents); return;
     }
-    if(!['/','/index.html','/styles.css','/lessons.css','/pro.css','/ideas.css','/team.css','/mobile-nav.css','/account.css','/sw.js','/manifest.webmanifest','/model.js','/lessons.js','/pro.js','/ideas.js'].includes(path)&&!path.startsWith('/assets/')){res.writeHead(404);res.end('Not found');return;}
-    const file = resolve(root, '.' + (path === '/' ? '/index.html' : path));
+    if(!['/','/index.html','/admin','/admin.html','/admin.css','/styles.css','/lessons.css','/pro.css','/ideas.css','/team.css','/mobile-nav.css','/account.css','/sw.js','/manifest.webmanifest','/model.js','/lessons.js','/pro.js','/ideas.js'].includes(path)&&!path.startsWith('/assets/')){res.writeHead(404);res.end('Not found');return;}
+    const staticPath = path === '/' ? '/index.html' : path === '/admin' ? '/admin.html' : path;
+    const file = resolve(root, '.' + staticPath);
     if (!file.startsWith(root + sep)) { res.writeHead(403); res.end(); return; }
     const body = await readFile(file);
     res.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });

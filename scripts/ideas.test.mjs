@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateIdea,filterIdeas} from '../ideas.js';
-import {newBoard,mutateBoard,publicIdeas,changeIdeas,browserIdentity} from '../server/ideas-service.js';
+import {newBoard,mutateBoard,publicIdeas,changeIdeas,browserIdentity,adminIdeas,moderateIdea} from '../server/ideas-service.js';
 import {createIdeasHandler} from '../api/ideas.js';
 const input={title:'პარტნიორთან შეხსენებების გაზიარება',description:'მინდა ბავშვის მოვლის შეხსენებები პარტნიორთან გავაზიარო.',benefit:'ორივე მშობელი უკეთ დავგეგმავთ ყოველდღიურობას.',category:'reminders',publish:true};
 function memoryStore(){let board=newBoard(),revision=0;return {async read(){return {board:structuredClone(board),revision};},async write(next,expected){if(expected!==revision)return false;board=structuredClone(next);revision++;return true;}};}
@@ -36,6 +36,29 @@ test('conditional-write retries preserve concurrent votes and submissions',async
   const id=(await store.read()).board.ideas[0].id;
   await Promise.all(['b','c','d'].map(actor=>changeIdeas(store,actor,'PATCH',{id,voted:true})));
   assert.equal((await store.read()).board.ideas[0].voters.length,4);
+});
+test('moderation preserves votes, overrides legacy settings and rejects stale edits', async () => {
+  const store = memoryStore();
+  await changeIdeas(store, 'author', 'POST', input);
+  const { id } = (await store.read()).board.ideas[0];
+  const legacy = { [id]: { status: 'planned' } };
+  assert.equal(adminIdeas((await store.read()).board, legacy)[0].status, 'planned');
+  const change = { id, revision: 0, status: 'completed', reply: 'დაემატა', hidden: false };
+  await Promise.all([changeIdeas(store, 'voter', 'PATCH', { id, voted: true }, legacy), moderateIdea(store, change, legacy)]);
+  const current = publicIdeas((await store.read()).board, 'voter', legacy)[0];
+  assert.equal(current.votes, 2);
+  assert.equal(current.status, 'completed');
+  assert.equal(current.reply, 'დაემატა');
+  assert.equal(current.revision, undefined);
+  await assert.rejects(moderateIdea(store, change, legacy), { status: 409 });
+  await moderateIdea(store, { ...change, revision: 1, hidden: true }, legacy);
+  const { board } = await store.read();
+  assert.deepEqual(publicIdeas(board, 'voter', legacy), []);
+  const [hidden] = adminIdeas(board, legacy);
+  assert.equal(hidden.hidden, true);
+  assert.equal(hidden.voters, undefined);
+  assert.equal(hidden.author, undefined);
+  await assert.rejects(changeIdeas(store, 'new-voter', 'PATCH', { id, voted: true }, legacy), { status: 404 });
 });
 test('only the author may withdraw an idea, and not after others support it',()=>{
   let board=mutateBoard(newBoard(),'a','POST',input);const id=board.ideas[0].id;

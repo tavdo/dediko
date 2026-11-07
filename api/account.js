@@ -2,10 +2,12 @@ import { api, json, sameOrigin, bodyJSON } from '../server/http.js';
 import { sessionFor, withCookies } from '../server/auth.js';
 import { getAccount, putAccount } from '../server/accounts.js';
 import { flushSchedules } from '../server/push.js';
+import { hasAdminAccess } from '../server/admin-access.js';
 
 export const GET = api(async request => {
   const { user, cookies } = await sessionFor(request);
-  return withCookies(json({ user: { id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerified }, ...await getAccount(user.id) }), cookies);
+  const [account, admin] = await Promise.all([getAccount(user.id), hasAdminAccess(user)]);
+  return withCookies(json({ user: { id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerified, admin }, ...account }), cookies);
 });
 export const PUT = api(async request => {
   sameOrigin(request);
