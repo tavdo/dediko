@@ -11,3 +11,10 @@ dialog{border:1px solid #f0e7f2;border-radius:24px;max-width:510px;width:calc(10
 .brand-image{border-radius:12px}
 .hero-art{isolation:isolate;overflow:clip}
 @media(prefers-reduced-motion:reduce){:root{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
+.health-calendar-note{margin:0;padding:12px 20px;border-bottom:1px solid var(--line)}
+.reminders-panel .tabs{flex-wrap:wrap}
+.health-calendar-note a{color:inherit;text-decoration:underline}
+.health-detail-list{margin:0 0 18px;padding-inline-start:20px;line-height:1.65}
+.health-dose-details{margin-bottom:16px}
+.health-dose-details summary{cursor:pointer}
+.health-dose-details .field{margin:12px 0 0}

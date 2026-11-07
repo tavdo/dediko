@@ -36,7 +36,8 @@ export const POST = api(async request => {
   }
   if (body.action === 'status') {
     const [row] = await sql`select endpoint_hash from dediko.push_subscriptions where endpoint_hash = ${hash} and user_id = ${user.id}`;
-    const [pending] = await sql`select count(*)::integer as count from dediko.schedules where user_id = ${user.id} and not queued`;
+    const [pending] = await sql`select count(*)::integer as count from dediko.schedules where user_id = ${user.id} and not queued
+      and (next_at <= now() + interval '5 days' or not starts_with(reminder_id, 'health-'))`;
     return withCookies(json({ subscribed: !!row, pending: pending.count }), cookies);
   }
   if (body.action === 'retry') { await flushSchedules(user.id); return withCookies(json({ scheduled: true }), cookies); }

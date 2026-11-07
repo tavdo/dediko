@@ -35,7 +35,9 @@ export async function queueSchedule(row) {
 }
 export async function flushSchedules(userId = null) {
   const sql = db();
-  const rows = await sql`select * from dediko.schedules where not queued and (${userId}::text is null or user_id = ${userId}) order by next_at limit 100`;
+  // The daily recovery cron publishes calendar jobs once they fit in one Queue delay.
+  const rows = await sql`select * from dediko.schedules where not queued and (${userId}::text is null or user_id = ${userId})
+    and (next_at <= now() + interval '5 days' or not starts_with(reminder_id, 'health-')) order by next_at limit 100`;
   for (const row of rows) await queueSchedule(row);
   return rows.length;
 }

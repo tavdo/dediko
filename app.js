@@ -1,4 +1,5 @@
 import { localDate as browserLocalDate, nextOccurrence, completionKey, suggestedReminders } from './model.js';
+import { antenatalSource, vaccinationSource, healthEntry, hpvMinimumDate, isBirthDose, isRecordedDose, syncHealthReminders } from './health-calendar.js';
 import { parseVideoUrl, lessonsForStage, lessonCategories, migrateLessonState } from './lessons.js';
 import { proPrice, trialStatus, startProTrial, weekStart, shiftDate, weeklyTemplate, migrateProState, remindersToCalendar } from './pro.js';
 import { ideaCategories, ideaStatuses, filterIdeas, validateIdea } from './ideas.js';
@@ -54,7 +55,9 @@ let ideaDraft = null;
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
-    if (saved?.version === 1 && Array.isArray(saved.reminders) && (saved.profile === null || ['pregnant', 'mother'].includes(saved.profile?.stage))) return migrateProState(migrateLessonState(saved));
+    if (saved?.version === 1 && Array.isArray(saved.reminders) && (saved.profile === null || ['pregnant', 'mother'].includes(saved.profile?.stage))) {
+      return migrateProState(migrateLessonState({ ...saved, reminders:syncHealthReminders(saved.profile, saved.reminders, browserLocalDate()) }));
+    }
   } catch { /* A fresh local space can still be used when storage is unavailable. */ }
   return emptyData();
 }
@@ -109,19 +112,28 @@ function isComplete(reminder) {
 function reminderRow(reminder) {
   const done = isComplete(reminder);
   const date = nextOccurrence(reminder, localDate());
-  const overdue = date < localDate() && !done;
-  return `<article class="reminder-row ${done ? 'is-done' : ''} ${!reminder.enabled ? 'is-disabled' : ''}"><button class="complete-button ${done ? 'checked' : ''}" aria-label="${escape(reminder.title)} — ${done ? 'შესრულების გაუქმება' : 'შესრულებულად მონიშვნა'}" aria-pressed="${done}" data-action="complete" data-id="${escape(reminder.id)}">${done ? icon('check') : ''}</button><span class="category-icon ${reminder.category === 'baby' || reminder.category === 'visit' ? 'blue-bg' : ''}">${icon(categoryIcon(reminder.category))}</span><div class="reminder-description"><strong>${escape(reminder.title)}</strong><span>${categoryName(reminder.category)} <b>·</b> ${repeatName(reminder.repeat)} ${reminder.automatic ? '<i class="auto-label">შეთავაზებული</i>' : ''}</span></div><div class="reminder-date ${overdue ? 'overdue' : ''}"><strong>${escape(reminder.time)}</strong><small>${date === localDate() ? 'დღეს' : formatDate(date)}</small></div><button class="icon-button" aria-label="რედაქტირება: ${escape(reminder.title)}" data-action="edit-reminder" data-id="${escape(reminder.id)}">${icon('edit')}</button></article>`;
+  const overdue = date < localDate() && !done && !healthEntry(reminder.id);
+  const entry = healthEntry(reminder.id);
+  const recorded = isRecordedDose(reminder.id, data.profile);
+  const summary = entry && (entry.title.endsWith(entry.window) ? `${entry.details.length} ვაქცინა` : entry.window);
+  return `<article class="reminder-row ${done ? 'is-done' : ''} ${!reminder.enabled ? 'is-disabled' : ''}"><button class="complete-button ${done ? 'checked' : ''}" ${recorded ? 'disabled' : ''} aria-label="${escape(reminder.title)} — ${done ? 'შესრულების გაუქმება' : 'შესრულებულად მონიშვნა'}" aria-pressed="${done}" data-action="complete" data-id="${escape(reminder.id)}">${done ? icon('check') : ''}</button><span class="category-icon ${reminder.category === 'baby' || reminder.category === 'visit' ? 'blue-bg' : ''}">${icon(categoryIcon(reminder.category))}</span><div class="reminder-description"><strong>${escape(reminder.title)}</strong><span>${entry ? escape(summary) : `${categoryName(reminder.category)} <b>·</b> ${repeatName(reminder.repeat)} ${reminder.automatic ? '<i class="auto-label">შეთავაზებული</i>' : ''}`}</span></div><div class="reminder-date ${overdue ? 'overdue' : ''}"><strong>${isBirthDose(reminder.id) || recorded ? '' : escape(reminder.time)}</strong><small>${date === localDate() ? 'დღეს' : formatDate(date, { year: !!entry })}</small></div><button class="icon-button" aria-label="${entry ? 'განრიგის დეტალები' : 'რედაქტირება'}: ${escape(reminder.title)}" data-action="edit-reminder" data-id="${escape(reminder.id)}">${icon('edit')}</button></article>`;
 }
 function dashboard() {
   const profile = data.profile;
   const reminders = currentReminders();
-  const today = reminders.filter(r => r.enabled && nextOccurrence(r, localDate()) <= localDate());
+  const today = reminders.filter(r => r.enabled && (healthEntry(r.id) ? r.date === localDate() : nextOccurrence(r, localDate()) <= localDate()));
   const done = today.filter(isComplete).length;
   let shown = filter === 'today' ? today : reminders;
   if (filter === 'personal') shown = reminders.filter(r => !r.automatic);
   if (filter === 'suggested') shown = reminders.filter(r => r.automatic);
-  shown = [...shown].sort((a, b) => Number(isComplete(a)) - Number(isComplete(b)) || `${nextOccurrence(a, localDate())}${a.time}`.localeCompare(`${nextOccurrence(b, localDate())}${b.time}`));
-  return `<div class="dashboard-shell"><aside class="sidebar"><a href="#" class="brand" data-action="home">${logo()}</a><div class="sidebar-label">შენი პირადი სივრცე</div><nav aria-label="პირადი სივრცე"><button class="sidebar-item ${view === 'dashboard' ? 'active' : ''}" data-action="dashboard">${icon('grid')} ჩემი დღე</button><button class="sidebar-item" data-action="all-reminders">${icon('bell')} შეხსენებები <span class="nav-count">${reminders.length}</span></button><button class="sidebar-item ${view === 'lessons' ? 'active' : ''}" data-action="lessons">${icon('play')} ვიდეოგაკვეთილები</button><button class="sidebar-item ${view === 'ideas' ? 'active' : ''}" data-action="ideas">${icon('leaf')} იდეები Dediko-სთვის</button><button class="sidebar-item pro-nav-link ${['pro', 'planner'].includes(view) ? 'active' : ''}" data-action="pro">${icon('spark')} Dediko Pro <span class="pro-mini">${trialStatus(data.pro).active ? 'აქტიური' : 'ახალი'}</span></button><button class="sidebar-item ${view === 'profile' ? 'active' : ''}" data-action="profile">${icon('user')} ჩემი პროფილი</button></nav><div class="sidebar-kind"><span>პატარა შეხსენება</span><div>♡</div><strong>საკუთარ თავზე ზრუნვაც<br>პატარაზე ზრუნვაა.</strong><p>შენც იმსახურებ შესვენებას.</p></div><button class="sidebar-item sidebar-bottom" data-action="${demo ? 'exit-demo' : 'home'}">${icon('logout')} ${demo ? 'დემოდან გასვლა' : 'მთავარი გვერდი'}</button></aside><div class="dashboard-content"><header class="dashboard-header"><div class="mobile-brand">${logo()}</div><span class="header-date">${formatDate(localDate(), { weekday: 'long', day: 'numeric', month: 'long' })}</span><div class="header-right">${trialStatus(data.pro).active ? '<button class="pro-header-badge" data-action="planner">✧ PRO</button>' : ''}<span class="stage-pill">${icon(profile.stage === 'pregnant' ? 'heart' : 'baby')}${stageName(profile.stage)}</span><button class="avatar" data-action="profile" aria-label="ჩემი პროფილი">${escape(profile.name.slice(0, 1))}</button></div></header><nav class="mobile-nav" aria-label="მობილური ნავიგაცია"><button data-action="dashboard">${icon('grid')} ჩემი დღე</button><button data-action="all-reminders">${icon('bell')} შეხსენებები</button><button data-action="lessons">${icon('play')} ვიდეოები</button><button data-action="ideas">${icon('leaf')} იდეები</button><button data-action="pro">${icon('spark')} Pro</button><button data-action="profile">${icon('user')} პროფილი</button></nav><main class="dashboard-main" id="main">${demo ? '<div class="demo-banner"><span>ეს არის დემო სივრცე — ცვლილებები არ შეინახება.</span><button data-action="register">შექმენი შენი სივრცე →</button></div>' : ''}${view === 'profile' ? profileView() : view === 'ideas' ? ideasView() : view === 'pro' ? proView() : view === 'planner' ? plannerView() : view === 'lessons' ? lessonsView() : `<div class="dashboard-title"><div><span class="eyebrow">დღის დასაწყისი შენია</span><h1>გამარჯობა, ${escape(profile.name)} <span>♡</span></h1><p>მოდი, დღესაც პატარა ნაბიჯებით წავიდეთ.</p></div><button class="button" data-action="add-reminder">${icon('plus')} ახალი შეხსენება</button></div><section class="welcome-panel ${profile.stage === 'mother' ? 'mother-panel' : ''}"><div><span class="tag">${icon('spark')} ${profile.stage === 'pregnant' ? 'პატარას მოლოდინში' : 'ახალი დღე, ერთად'}</span><h2>${profile.stage === 'pregnant' ? 'შენი ყველაზე თბილი<br>მოლოდინის დღეები.' : 'პატარა ჩახუტებები.<br>დიდი ახალი ამბავი.'}</h2><p>${profile.stage === 'pregnant' ? 'იყავი საკუთარ თავთან ისეთივე ნაზი, როგორც შენს პატარასთან.' : 'ახალ რიტმს ნელ-ნელა იპოვი. საკუთარ თავსაც მოუსმინე.'}</p><span class="date-caption">${icon('calendar')} ${profile.stage === 'pregnant' ? 'პატარას ველოდებით:' : 'პატარას დაბადების დღე:'} ${formatDate(profile.referenceDate, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div><div class="welcome-art" aria-hidden="true"><span>♡</span><i>✧</i><small>შენ შესანიშნავად<br>ართმევ თავს</small></div></section><div class="dashboard-grid"><section class="reminders-panel"><div class="row-between panel-title"><div><span class="eyebrow">ცოტა მეტი სიმსუბუქე</span><h2>შენი შეხსენებები</h2></div>${icon('bell', 'pink')}</div><div class="tabs" role="group" aria-label="შეხსენებების ფილტრი">${[['today', 'დღეს'], ['all', 'ყველა'], ['personal', 'პირადი'], ['suggested', 'შეთავაზებული']].map(([key, name]) => `<button data-action="filter" data-filter="${key}" aria-pressed="${filter === key}" class="${filter === key ? 'selected' : ''}">${name}</button>`).join('')}</div><div class="reminders-list">${shown.length ? shown.map(reminderRow).join('') : `<div class="empty-state">${icon('leaf')}<h3>${filter === 'today' ? 'დღეს თავისუფალი სივრცე გაქვს' : 'აქ შენი გეგმები გამოჩნდება'}</h3><p>დაამატე შეხსენება და მნიშვნელოვანი ამბები ერთ ადგილას მოაგროვე.</p><button class="text-button" data-action="add-reminder">${icon('plus')} შეხსენების დამატება</button></div>`}</div><button class="add-reminder-inline" data-action="add-reminder">${icon('plus')} კიდევ ერთი პატარა გეგმა</button></section><aside class="day-aside"><section class="day-progress"><span class="eyebrow">შენი დღევანდელი ნაბიჯები</span><div class="progress-ring" style="--progress:${today.length ? (done / today.length) * 100 : 0}%"><div><strong>${done}<small> / ${today.length}</small></strong><span>შესრულებულია</span></div></div><h3>შენი ტემპი საკმარისია ♡</h3><p>ყველაფრის ერთ დღეში<br>მოსწრება საჭირო არ არის.</p></section><section class="tip-card">${icon('spark')}<h3>სივრცე შენთან ერთად იცვლება</h3><p>შეცვალე შენი ეტაპი პროფილიდან და მიიღე შესაბამისი შეხსენებები.</p><button class="text-button" data-action="profile">ჩემი პროფილი ${icon('arrow')}</button></section></aside></div>`}<p class="local-notice">${icon('heart')} ${account.user ? 'შენი პირადი ანგარიში · მონაცემები სინქრონიზდება · შეტყობინებები ჩართე პროფილიდან' : 'ლოკალური სივრცე · ანგარიშის შექმნით მონაცემებს სხვა მოწყობილობაზეც ნახავ'}</p></main></div></div>`;
+  if (filter === 'health') shown = reminders.filter(r => healthEntry(r.id));
+  const pregnant = profile.stage === 'pregnant';
+  const calendarNote = filter === 'health' ? `<p class="form-note health-calendar-note">თარიღები ითვლება ${pregnant ? 'სავარაუდო მშობიარობის' : 'ბავშვის დაბადების'} თარიღიდან. ვიზიტის ან აცრის დღე ექიმთან შეათანხმე. <a href="${pregnant ? antenatalSource : vaccinationSource}" target="_blank" rel="noopener noreferrer">განრიგის წყარო ↗</a></p>` : '';
+  shown = [...shown].sort((a, b) => {
+    const dateOrder = `${nextOccurrence(a, localDate())}${a.time}`.localeCompare(`${nextOccurrence(b, localDate())}${b.time}`);
+    return filter === 'health' ? dateOrder : Number(isComplete(a)) - Number(isComplete(b)) || dateOrder;
+  });
+  return `<div class="dashboard-shell"><aside class="sidebar"><a href="#" class="brand" data-action="home">${logo()}</a><div class="sidebar-label">შენი პირადი სივრცე</div><nav aria-label="პირადი სივრცე"><button class="sidebar-item ${view === 'dashboard' ? 'active' : ''}" data-action="dashboard">${icon('grid')} ჩემი დღე</button><button class="sidebar-item" data-action="all-reminders">${icon('bell')} შეხსენებები <span class="nav-count">${reminders.length}</span></button><button class="sidebar-item ${view === 'lessons' ? 'active' : ''}" data-action="lessons">${icon('play')} ვიდეოგაკვეთილები</button><button class="sidebar-item ${view === 'ideas' ? 'active' : ''}" data-action="ideas">${icon('leaf')} იდეები Dediko-სთვის</button><button class="sidebar-item pro-nav-link ${['pro', 'planner'].includes(view) ? 'active' : ''}" data-action="pro">${icon('spark')} Dediko Pro <span class="pro-mini">${trialStatus(data.pro).active ? 'აქტიური' : 'ახალი'}</span></button><button class="sidebar-item ${view === 'profile' ? 'active' : ''}" data-action="profile">${icon('user')} ჩემი პროფილი</button></nav><div class="sidebar-kind"><span>პატარა შეხსენება</span><div>♡</div><strong>საკუთარ თავზე ზრუნვაც<br>პატარაზე ზრუნვაა.</strong><p>შენც იმსახურებ შესვენებას.</p></div><button class="sidebar-item sidebar-bottom" data-action="${demo ? 'exit-demo' : 'home'}">${icon('logout')} ${demo ? 'დემოდან გასვლა' : 'მთავარი გვერდი'}</button></aside><div class="dashboard-content"><header class="dashboard-header"><div class="mobile-brand">${logo()}</div><span class="header-date">${formatDate(localDate(), { weekday: 'long', day: 'numeric', month: 'long' })}</span><div class="header-right">${trialStatus(data.pro).active ? '<button class="pro-header-badge" data-action="planner">✧ PRO</button>' : ''}<span class="stage-pill">${icon(profile.stage === 'pregnant' ? 'heart' : 'baby')}${stageName(profile.stage)}</span><button class="avatar" data-action="profile" aria-label="ჩემი პროფილი">${escape(profile.name.slice(0, 1))}</button></div></header><nav class="mobile-nav" aria-label="მობილური ნავიგაცია"><button data-action="dashboard">${icon('grid')} ჩემი დღე</button><button data-action="all-reminders">${icon('bell')} შეხსენებები</button><button data-action="lessons">${icon('play')} ვიდეოები</button><button data-action="ideas">${icon('leaf')} იდეები</button><button data-action="pro">${icon('spark')} Pro</button><button data-action="profile">${icon('user')} პროფილი</button></nav><main class="dashboard-main" id="main">${demo ? '<div class="demo-banner"><span>ეს არის დემო სივრცე — ცვლილებები არ შეინახება.</span><button data-action="register">შექმენი შენი სივრცე →</button></div>' : ''}${view === 'profile' ? profileView() : view === 'ideas' ? ideasView() : view === 'pro' ? proView() : view === 'planner' ? plannerView() : view === 'lessons' ? lessonsView() : `<div class="dashboard-title"><div><span class="eyebrow">დღის დასაწყისი შენია</span><h1>გამარჯობა, ${escape(profile.name)} <span>♡</span></h1><p>მოდი, დღესაც პატარა ნაბიჯებით წავიდეთ.</p></div><button class="button" data-action="add-reminder">${icon('plus')} ახალი შეხსენება</button></div><section class="welcome-panel ${profile.stage === 'mother' ? 'mother-panel' : ''}"><div><span class="tag">${icon('spark')} ${profile.stage === 'pregnant' ? 'პატარას მოლოდინში' : 'ახალი დღე, ერთად'}</span><h2>${profile.stage === 'pregnant' ? 'შენი ყველაზე თბილი<br>მოლოდინის დღეები.' : 'პატარა ჩახუტებები.<br>დიდი ახალი ამბავი.'}</h2><p>${profile.stage === 'pregnant' ? 'იყავი საკუთარ თავთან ისეთივე ნაზი, როგორც შენს პატარასთან.' : 'ახალ რიტმს ნელ-ნელა იპოვი. საკუთარ თავსაც მოუსმინე.'}</p><span class="date-caption">${icon('calendar')} ${profile.stage === 'pregnant' ? 'პატარას ველოდებით:' : 'პატარას დაბადების დღე:'} ${formatDate(profile.referenceDate, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div><div class="welcome-art" aria-hidden="true"><span>♡</span><i>✧</i><small>შენ შესანიშნავად<br>ართმევ თავს</small></div></section><div class="dashboard-grid"><section class="reminders-panel"><div class="row-between panel-title"><div><span class="eyebrow">ცოტა მეტი სიმსუბუქე</span><h2>შენი შეხსენებები</h2></div>${icon('bell', 'pink')}</div><div class="tabs" role="group" aria-label="შეხსენებების ფილტრი">${[['today', 'დღეს'], ['all', 'ყველა'], ['personal', 'პირადი'], ['suggested', 'შეთავაზებული'], ['health', pregnant ? 'ვიზიტები' : 'აცრები']].map(([key, name]) => `<button data-action="filter" data-filter="${key}" aria-pressed="${filter === key}" class="${filter === key ? 'selected' : ''}">${name}</button>`).join('')}</div>${calendarNote}<div class="reminders-list">${shown.length ? shown.map(reminderRow).join('') : `<div class="empty-state">${icon('leaf')}<h3>${filter === 'today' ? 'დღეს თავისუფალი სივრცე გაქვს' : 'აქ შენი გეგმები გამოჩნდება'}</h3><p>დაამატე შეხსენება და მნიშვნელოვანი ამბები ერთ ადგილას მოაგროვე.</p><button class="text-button" data-action="add-reminder">${icon('plus')} შეხსენების დამატება</button></div>`}</div><button class="add-reminder-inline" data-action="add-reminder">${icon('plus')} კიდევ ერთი პატარა გეგმა</button></section><aside class="day-aside"><section class="day-progress"><span class="eyebrow">შენი დღევანდელი ნაბიჯები</span><div class="progress-ring" style="--progress:${today.length ? (done / today.length) * 100 : 0}%"><div><strong>${done}<small> / ${today.length}</small></strong><span>შესრულებულია</span></div></div><h3>შენი ტემპი საკმარისია ♡</h3><p>ყველაფრის ერთ დღეში<br>მოსწრება საჭირო არ არის.</p></section><section class="tip-card">${icon('spark')}<h3>სივრცე შენთან ერთად იცვლება</h3><p>შეცვალე შენი ეტაპი პროფილიდან და მიიღე შესაბამისი შეხსენებები.</p><button class="text-button" data-action="profile">ჩემი პროფილი ${icon('arrow')}</button></section></aside></div>`}<p class="local-notice">${icon('heart')} ${account.user ? 'შენი პირადი ანგარიში · მონაცემები სინქრონიზდება · შეტყობინებები ჩართე პროფილიდან' : 'ლოკალური სივრცე · ანგარიშის შექმნით მონაცემებს სხვა მოწყობილობაზეც ნახავ'}</p></main></div></div>`;
 }
 
 function currentLessons() {
@@ -359,11 +371,18 @@ function submitPlanner(form, values) {
   save(); dialog.close(); render(); toast('გეგმა შენახულია');
 }
 
-function profileFields(profile) {
-  return `<label class="field">შენი სახელი<input name="name" type="text" maxlength="40" autocomplete="given-name" value="${escape(profile?.name || '')}" placeholder="როგორ მოგმართოთ?" required></label><fieldset class="stage-fieldset"><legend>დედობის რომელ ეტაპზე ხარ?</legend>${stageChoices(profile?.stage || 'pregnant')}</fieldset><label class="field"><span id="date-label">${profile?.stage === 'mother' ? 'პატარას დაბადების თარიღი' : 'მშობიარობის მოსალოდნელი თარიღი'}</span><input type="date" name="referenceDate" value="${escape(profile?.referenceDate || '')}" ${profile?.stage === 'mother' ? `max="${localDate()}"` : `min="${localDate()}"`} required></label>`;
+function profileFields(profile, includeVaccineHistory = false) {
+  const mother = profile?.stage === 'mother';
+  return `<label class="field">შენი სახელი<input name="name" type="text" maxlength="40" autocomplete="given-name" value="${escape(profile?.name || '')}" placeholder="როგორ მოგმართოთ?" required></label><fieldset class="stage-fieldset"><legend>დედობის რომელ ეტაპზე ხარ?</legend>${stageChoices(profile?.stage || 'pregnant')}</fieldset><label class="field"><span id="date-label">${mother ? 'პატარას დაბადების თარიღი' : 'მშობიარობის მოსალოდნელი თარიღი'}</span><input type="date" name="referenceDate" value="${escape(profile?.referenceDate || '')}" ${mother ? `max="${localDate()}"` : ''} required></label><div data-child-fields ${mother ? '' : 'hidden'}><label class="field">ბავშვის სქესი (არასავალდებულო)<select name="childSex"><option value="">არ არის მითითებული</option><option value="female" ${profile?.childSex === 'female' ? 'selected' : ''}>გოგო</option><option value="male" ${profile?.childSex === 'male' ? 'selected' : ''}>ბიჭი</option></select></label>${includeVaccineHistory ? `<details class="health-dose-details"><summary>HPV აცრის ჩანაწერი</summary><label class="field">პირველი დოზის ჩატარების თარიღი<input type="date" name="hpvFirstDose" value="${escape(profile.hpvFirstDose || '')}" max="${localDate()}"></label><p class="form-note">მეორე დოზის შეხსენების თარიღი პირველი დოზიდან 6 თვეზე დაიგეგმება.</p></details>` : ''}</div>`;
+}
+function profileFromForm(values) {
+  const profile = { name:values.name.trim(), stage:values.stage, referenceDate:values.referenceDate };
+  if (profile.stage === 'mother' && values.childSex) profile.childSex = values.childSex;
+  if (profile.stage === 'mother' && values.hpvFirstDose) profile.hpvFirstDose = values.hpvFirstDose;
+  return profile;
 }
 function profileView() {
-  return `<div class="dashboard-title"><div><span class="eyebrow">ყველაფერი შენზე მორგებული</span><h1>ჩემი პროფილი <span>♡</span></h1><p>შენი ამბავი იცვლება — შენი სივრცეც იცვლება.</p></div></div><section class="profile-panel"><div class="profile-heading"><span class="avatar">${escape(data.profile.name.slice(0, 1))}</span><div><h2>შენი ინფორმაცია</h2><p>სტატუსის შეცვლისას პირადი შეხსენებები შენარჩუნდება.</p></div></div><form id="profile-form">${profileFields(data.profile)}<p class="form-note">ახალ ეტაპზე გადასვლისას შესაბამის შეთავაზებულ შეხსენებებს დაინახავ. ძველი ეტაპის შეთავაზებები შეინახება და დროებით დაიმალება.</p><div class="form-error" role="alert"></div><button class="button" type="submit">ცვლილებების შენახვა ${icon('check')}</button></form><div class="profile-pro-card"><div><strong>Dediko ${trialStatus(data.pro).active ? 'Pro ✧' : 'Free'}</strong><p>${trialStatus(data.pro).active ? 'საცდელი პერიოდი · დარჩა ' + trialStatus(data.pro).daysLeft + ' დღე' : 'აღმოაჩინე მეტი შესაძლებლობა Pro-ში'}</p></div><button class="text-button" data-action="pro">პაკეტის ნახვა ${icon('arrow')}</button></div><button class="delete-button" data-action="reset-profile">ლოკალური პროფილის გასუფთავება</button></section>`;
+  return `<div class="dashboard-title"><div><span class="eyebrow">ყველაფერი შენზე მორგებული</span><h1>ჩემი პროფილი <span>♡</span></h1><p>შენი ამბავი იცვლება — შენი სივრცეც იცვლება.</p></div></div><section class="profile-panel"><div class="profile-heading"><span class="avatar">${escape(data.profile.name.slice(0, 1))}</span><div><h2>შენი ინფორმაცია</h2><p>სტატუსის შეცვლისას პირადი შეხსენებები შენარჩუნდება.</p></div></div><form id="profile-form">${profileFields(data.profile, true)}<p class="form-note">ახალ ეტაპზე გადასვლისას შესაბამის შეთავაზებულ შეხსენებებს დაინახავ. ძველი ეტაპის შეთავაზებები შეინახება და დროებით დაიმალება.</p><div class="form-error" role="alert"></div><button class="button" type="submit">ცვლილებების შენახვა ${icon('check')}</button></form><div class="profile-pro-card"><div><strong>Dediko ${trialStatus(data.pro).active ? 'Pro ✧' : 'Free'}</strong><p>${trialStatus(data.pro).active ? 'საცდელი პერიოდი · დარჩა ' + trialStatus(data.pro).daysLeft + ' დღე' : 'აღმოაჩინე მეტი შესაძლებლობა Pro-ში'}</p></div><button class="text-button" data-action="pro">პაკეტის ნახვა ${icon('arrow')}</button></div><button class="delete-button" data-action="reset-profile">ლოკალური პროფილის გასუფთავება</button></section>`;
 }
 
 function mobileGlassNav() {
@@ -418,12 +437,21 @@ function register(stage = 'pregnant') {
 }
 function reminderDialog(id) {
   const reminder = data.reminders.find(r => r.id === id);
+  if (healthEntry(id) && reminder) { healthReminderDialog(reminder); return; }
   openDialog(`<div class="dialog-symbol">${icon('bell')}</div><h2 id="dialog-title">${reminder ? 'შეხსენების რედაქტირება' : 'ერთი პატარა გეგმა'}</h2><p class="dialog-intro">მნიშვნელოვან ამბებს თავისი დრო მიუჩინე.</p><form id="reminder-form" data-id="${escape(id || '')}"><label class="field">რა გაგახსენოთ?<input name="title" required maxlength="100" placeholder="მაგ. ექიმთან ვიზიტი" value="${escape(reminder?.title || '')}"></label><div class="field-row"><label class="field">თარიღი<input type="date" name="date" required value="${escape(reminder?.date || localDate())}"></label><label class="field">დრო<input type="time" name="time" required value="${escape(reminder?.time || '10:00')}"></label></div><div class="field-row"><label class="field">გამეორება<select name="repeat">${['none', 'daily', 'weekly'].map(key => `<option value="${key}" ${reminder?.repeat === key ? 'selected' : ''}>${repeatName(key)}</option>`).join('')}</select></label><label class="field">კატეგორია<select name="category">${['self', 'baby', 'visit', 'other'].map(key => `<option value="${key}" ${reminder?.category === key ? 'selected' : ''}>${categoryName(key)}</option>`).join('')}</select></label></div><label class="switch-field"><span>შეხსენება ჩართულია</span><input type="checkbox" name="enabled" role="switch" ${reminder?.enabled !== false ? 'checked' : ''}></label><div class="form-error" role="alert"></div><button class="button full-width" type="submit">${reminder ? 'ცვლილებების შენახვა' : 'შეხსენების დამატება'} ${icon('check')}</button>${reminder && !reminder.automatic ? '<button class="delete-button" type="button" data-action="delete-reminder" data-id="' + escape(id) + '">შეხსენების წაშლა</button>' : ''}</form>`);
+}
+function healthReminderDialog(reminder) {
+  const entry = healthEntry(reminder.id);
+  const fixed = isBirthDose(reminder.id) || isRecordedDose(reminder.id, data.profile);
+  const dateMin = reminder.id === 'health-vaccine-hpv-2' ? `min="${escape(reminder.calendarDate)}"` : '';
+  const timing = fixed ? '' : `<form id="reminder-form" data-id="${escape(reminder.id)}"><div class="field-row"><label class="field">შეხსენების თარიღი<input type="date" name="date" ${dateMin} required value="${escape(reminder.date)}"></label><label class="field">დრო<input type="time" name="time" required value="${escape(reminder.time)}"></label></div><label class="switch-field"><span>შეხსენება ჩართულია</span><input type="checkbox" name="enabled" role="switch" ${reminder.enabled ? 'checked' : ''}></label><div class="form-error" role="alert"></div><button class="button full-width" type="submit">შენახვა ${icon('check')}</button></form>`;
+  openDialog(`<div class="dialog-symbol">${icon('calendar')}</div><h2 id="dialog-title">${escape(entry.title)}</h2><p class="dialog-intro">${escape(entry.window)}</p><ul class="health-detail-list">${entry.details.map(item => `<li>${escape(item)}</li>`).join('')}</ul><p class="form-note">${isBirthDose(reminder.id) ? 'ეს ჩანაწერი მხოლოდ კალენდარში ჩანს. დაბადების დოზის დრო სამშობიაროს გუნდთან გადაამოწმე.' : 'ზუსტი თარიღი და საჭირო გამოკვლევები ექიმთან გადაამოწმე.'}</p>${timing}`);
 }
 function ensureSuggestions() {
   for (const reminder of suggestedReminders(data.profile.stage)) {
     if (!data.reminders.some(r => r.id === reminder.id)) data.reminders.push(reminder);
   }
+  data.reminders = syncHealthReminders(data.profile, data.reminders, localDate());
 }
 function startDemo() {
   if (data.profile) { view = 'dashboard'; render(); return; }
@@ -432,6 +460,7 @@ function startDemo() {
   const date = new Date();
   date.setDate(date.getDate() + 100);
   data = { ...emptyData(), profile: { name: 'ანა', stage: 'pregnant', referenceDate: localDate(date) }, reminders: suggestedReminders('pregnant') };
+  ensureSuggestions();
   view = 'dashboard'; filter = 'today'; render(); window.scrollTo(0, 0);
 }
 
@@ -483,8 +512,8 @@ document.addEventListener('click', event => {
     }
     if (action === 'delete-planner-task') { data.plannerTasks = data.plannerTasks.filter(task => task.id !== id || task.stage !== data.profile.stage); save(); dialog.close(); }
     if (action === 'export-calendar') {
-      if (!currentReminders().some(reminder => reminder.enabled)) { toast('ექსპორტისთვის ჯერ ჩართე ან დაამატე შეხსენება.'); return; }
-      const url = URL.createObjectURL(new Blob([remindersToCalendar(currentReminders())], {type:'text/calendar;charset=utf-8'}));
+      if (!currentReminders().some(reminder => reminder.enabled && !isBirthDose(reminder.id))) { toast('ექსპორტისთვის ჯერ ჩართე ან დაამატე შეხსენება.'); return; }
+      const url = URL.createObjectURL(new Blob([remindersToCalendar(currentReminders().filter(r => !isBirthDose(r.id)))], {type:'text/calendar;charset=utf-8'}));
       const link = document.createElement('a'); link.href = url; link.download = 'dediko-reminders.ics'; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast('კალენდრის ფაილი მზადაა — გახსენი შენს კალენდარში.'); return;
     }
@@ -540,6 +569,7 @@ document.addEventListener('click', event => {
   }
   if (action === 'complete') {
     const reminder = data.reminders.find(r => r.id === id);
+    if (!reminder || isRecordedDose(id, data.profile)) return;
     const key = completionKey(reminder, localDate());
     reminder.completed = reminder.completed.includes(key) ? reminder.completed.filter(date => date !== key) : [...reminder.completed, key];
     save(); render();
@@ -556,10 +586,12 @@ document.addEventListener('change', event => {
   if (event.target.name !== 'stage') return;
   const form = event.target.closest('form');
   const date = form.elements.referenceDate;
-  form.querySelector('#date-label').textContent = event.target.value === 'mother' ? 'პატარას დაბადების თარიღი' : 'მშობიარობის მოსალოდნელი თარიღი';
-  if (event.target.value === 'mother') { date.max = localDate(); date.removeAttribute('min'); }
-  else { date.min = localDate(); date.removeAttribute('max'); }
-  if (date.value && !date.validity.valid) date.value = '';
+  const mother = event.target.value === 'mother';
+  form.querySelector('#date-label').textContent = mother ? 'პატარას დაბადების თარიღი' : 'მშობიარობის მოსალოდნელი თარიღი';
+  form.querySelector('[data-child-fields]').hidden = !mother;
+  if (mother) date.max = localDate();
+  else date.removeAttribute('max');
+  date.value = '';
 });
 
 document.addEventListener('submit', event => {
@@ -575,10 +607,11 @@ document.addEventListener('submit', event => {
   if (form.id === 'register-form' || form.id === 'profile-form') {
     if (!values.name.trim()) { error.textContent = 'გთხოვ, მიუთითე შენი სახელი.'; return; }
     if (!['pregnant', 'mother'].includes(values.stage) || !values.referenceDate) { error.textContent = 'აირჩიე ეტაპი და შესაბამისი თარიღი.'; return; }
-    const invalidDate = values.stage === 'mother' ? values.referenceDate > localDate() : values.referenceDate < localDate();
+    const invalidDate = values.stage === 'mother' && values.referenceDate > localDate();
     if (invalidDate) { error.textContent = 'გთხოვ, გადაამოწმე არჩეული თარიღი.'; return; }
+    if (values.stage === 'mother' && values.hpvFirstDose && (values.hpvFirstDose < hpvMinimumDate(values.referenceDate) || values.hpvFirstDose > localDate())) { error.textContent = 'გადაამოწმე HPV აცრის პირველი დოზის თარიღი. მინიმალური ასაკია 9 წელი.'; return; }
     if (form.id === 'register-form') { submitRegistration(form, values); return; }
-    data.profile = { name: values.name.trim(), stage: values.stage, referenceDate: values.referenceDate };
+    data.profile = profileFromForm(values);
     ensureSuggestions();
     if (form.id === 'register-form' && pendingProTrial) { data.pro = startProTrial(data.pro); }
     save();
@@ -586,8 +619,12 @@ document.addEventListener('submit', event => {
     view = form.id === 'profile-form' ? 'profile' : pendingProTrial ? 'planner' : 'dashboard'; pendingProTrial = false; filter = 'today'; lessonFilter = 'all'; lessonSearch = ''; render();
     toast(form.id === 'profile-form' ? 'პროფილი განახლდა — სივრცე შენს ეტაპს მოერგო ♡' : 'კეთილი იყოს შენი მობრძანება Dediko-ში ♡');
   } else {
-    if (!values.title.trim()) { error.textContent = 'შეხსენებას სათაური სჭირდება.'; return; }
     const existing = data.reminders.find(r => r.id === form.dataset.id);
+    if (existing && healthEntry(existing.id)) {
+      Object.assign(existing, { date:values.date, time:values.time, enabled:values.enabled === 'on' });
+      save(); dialog.close(); render(); toast('შეხსენება განახლდა'); return;
+    }
+    if (!values.title.trim()) { error.textContent = 'შეხსენებას სათაური სჭირდება.'; return; }
     const fields = { title: values.title.trim(), date: values.date, time: values.time, repeat: values.repeat, category: values.category, enabled: values.enabled === 'on' };
     if (existing) Object.assign(existing, fields);
     else data.reminders.push({ ...fields, id: crypto.randomUUID(), automatic: false, completed: [] });
@@ -679,6 +716,11 @@ function adoptAccount(result, restoreDraft = true) {
       account.error = 'ამ მოწყობილობაზე შენახვას ელოდება ცვლილებები. დააჭირე „ხელახლა შენახვას“.';
     }
   } catch { /* No pending draft. */ }
+  const reminders = syncHealthReminders(data.profile, data.reminders, localDate());
+  if (reminders !== data.reminders) {
+    data.reminders = reminders;
+    if (!account.dirty) queueCloudSave();
+  }
 }
 async function initializeAccount() {
   try {
@@ -723,7 +765,7 @@ async function submitRegistration(form, values) {
   await withFormBusy(form, async () => {
     if (!account.user) {
       if (values.password.length < 12) throw new Error('პაროლი მინიმუმ 12 სიმბოლოს უნდა შეიცავდეს.');
-      onboardingDraft = { name:values.name, stage:values.stage, referenceDate:values.referenceDate };
+      onboardingDraft = profileFromForm(values);
       await authCall('signUp.email', { email:values.email, password:values.password, name:values.name.trim() });
       try { adoptAccount(await accountRequest('account'), false); }
       catch (error) { if (error.status === 401) { verifyDialog(values.email); toast('ანგარიში შეიქმნა. შესვლამდე ელფოსტა დაადასტურე.'); return; } throw error; }
@@ -731,7 +773,7 @@ async function submitRegistration(form, values) {
     if (data.profile && !demo) throw new Error('ამ ანგარიშში პროფილი უკვე არსებობს. შედი შენს სივრცეში.');
     demo = false; data = values.importLocal === 'on' ? structuredClone(load()) : emptyData();
     migrationPending = values.importLocal === 'on';
-    data.profile = { name:values.name.trim(), stage:values.stage, referenceDate:values.referenceDate };
+    data.profile = profileFromForm(values);
     account.timezone = browserZone(); ensureSuggestions();
     if (pendingProTrial) data.pro = startProTrial(data.pro);
     save(); await flushCloudSave();

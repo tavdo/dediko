@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Temporal } from '@js-temporal/polyfill';
 import { db } from './db.js';
 import { validateDocument, timezone, desiredSchedules } from './account-model.js';
 import { HttpError } from './http.js';
@@ -29,7 +30,8 @@ function scheduleQueries(sql, userId, desired, writeId = null) {
 }
 export async function putAccount(userId, input) {
   if (!input || !Number.isSafeInteger(input.revision) || input.revision < 0) throw new HttpError(400, 'არასწორი ვერსია.');
-  const document = validateDocument(input.document), zone = timezone(input.timezone);
+  const zone = timezone(input.timezone);
+  const document = validateDocument(input.document, Temporal.Now.plainDateISO(zone).toString());
   const sql = db(), writeId = randomUUID();
   const results = await sql.transaction([
     sql`update dediko.accounts set document = ${JSON.stringify(document)}::jsonb, revision = revision + 1,
