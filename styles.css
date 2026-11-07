@@ -18,3 +18,70 @@ dialog{border:1px solid #f0e7f2;border-radius:24px;max-width:510px;width:calc(10
 .health-dose-details{margin-bottom:16px}
 .health-dose-details summary{cursor:pointer}
 .health-dose-details .field{margin:12px 0 0}
+
+.pregnancy-growth {
+  margin-top: 24px;
+  padding: 24px 28px;
+  border: 1px solid #e8ddf3;
+  border-radius: 22px;
+  background: linear-gradient(125deg, #fffcff, #f7f2ff);
+}
+.growth-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.growth-header h2, .growth-copy h3 { margin: 4px 0; line-height: 1.3; }
+.growth-kicker { margin: 0; color: #784982; font-size: 11px; font-weight: 700; }
+.growth-age { margin: 5px 0 0; color: #665878; font-size: 13px; }
+.growth-picker { display: grid; gap: 5px; color: #665878; font-size: 11px; font-weight: 600; }
+.growth-picker select {
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid #ded0eb;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: 600 14px var(--font);
+}
+.growth-content {
+  display: grid;
+  grid-template-columns: clamp(106px, 18vw, 172px) minmax(0, 1fr);
+  align-items: center;
+  gap: 24px;
+  margin-top: 19px;
+  padding-top: 19px;
+  border-top: 1px solid #ece1f5;
+}
+.growth-art {
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #fff8f4, #f1dff7 70%, #e9dcfa);
+  color: var(--ink);
+}
+.growth-art svg { width: 70%; height: 70%; }
+.growth-art span { font: clamp(48px, 7vw, 88px)/1 "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
+.growth-copy p:not(.growth-kicker) { font-size: 12px; color: #665878; line-height: 1.6; }
+.growth-metrics { display: flex; flex-wrap: wrap; gap: 8px; margin: 13px 0 0; }
+.growth-metrics div { padding: 8px 11px; border: 1px solid #eee4f5; border-radius: 10px; background: #fff; }
+.growth-metrics dt { color: #665878; font-size: 10px; }
+.growth-metrics dd { margin: 3px 0 0; font-size: 17px; font-weight: 750; }
+.growth-note { margin: 9px 0 4px; }
+.growth-sources { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.growth-copy a { color: #66478b; font-size: 11px; text-decoration: underline; text-underline-offset: 2px; }
+@media (max-width: 620px) {
+  .pregnancy-growth { padding: 17px; margin-top: 17px; border-radius: 17px; }
+  .growth-header h2 { font-size: 19px; }
+  .growth-content { grid-template-columns: 72px minmax(0, 1fr); gap: 12px; }
+  .growth-art span { font-size: 43px; }
+  .growth-copy h3 { font-size: 17px; }
+  .growth-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(94px, 100%), 1fr)); }
+  .growth-metrics div { padding-inline: 7px; }
+  .growth-metrics dd { font-size: 15px; }
+}

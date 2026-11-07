@@ -3,6 +3,7 @@ import { Temporal } from '@js-temporal/polyfill';
 export const antenatalSource = 'https://www.matsne.gov.ge/ka/document/view/6748252';
 export const vaccinationSource = 'https://matsne.gov.ge/ka/document/view/5843261';
 export const childSexes = ['female', 'male'];
+const dueWeek = 40;
 
 const consultation = 'მეან-გინეკოლოგის კონსულტაცია';
 const ultrasound = 'სამეანო ულტრაბგერითი გამოკვლევა (დოპლეროგრაფია ექიმის მითითებით)';
@@ -20,7 +21,7 @@ const visits = [
   [40, '40+0 – 40+6 კვირა', [protein]]
 ].map(([week, window, tests], index) => ({
   id: `health-visit-${index + 1}`, title: `ორსულობის ვიზიტი №${index + 1}`, window, details: [consultation, ...tests],
-  dateFor: due => due.add({ weeks: week - 40 }),
+  dateFor: due => due.add({ weeks: week - dueWeek }),
   windowDays: index === 1 ? 20 : 6
 }));
 
@@ -64,6 +65,15 @@ export const isRecordedDose = (id, profile) => id === hpvFirst.id && !!profile.h
 function plainDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   try { return Temporal.PlainDate.from(value); } catch { return null; }
+}
+
+export function pregnancyAge(dueDate, today) {
+  const due = plainDate(dueDate);
+  const date = plainDate(today);
+  if (!due || !date) return null;
+  const days = due.subtract({ weeks:dueWeek }).until(date).days;
+  if (days < 0) return null;
+  return { weeks:Math.floor(days / 7), days:days % 7 };
 }
 export const hpvMinimumDate = birth => plainDate(birth)?.add({ years: 9 }).toString();
 
