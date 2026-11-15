@@ -47,4 +47,44 @@ create table if not exists dediko.lesson_overrides (
   revision integer not null default 1 check (revision > 0),
   created_at timestamptz not null default now()
 );
+create table if not exists dediko.community_posts (
+  id uuid primary key,
+  user_id text not null,
+  author text not null check (length(author) between 2 and 40),
+  title text not null check (length(title) between 5 and 120),
+  body text not null check (length(body) <= 4000),
+  type text not null check (type in ('question', 'experience')),
+  topic text not null check (topic in ('pregnancy', 'motherhood', 'baby', 'wellbeing', 'other')),
+  comments_created integer not null default 0 check (comments_created between 0 and 300),
+  hidden boolean not null default false,
+  deleted boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists community_feed_idx on dediko.community_posts(created_at desc, id desc) where not hidden and not deleted;
+create table if not exists dediko.community_comments (
+  id uuid primary key,
+  post_id uuid not null references dediko.community_posts(id) on delete cascade,
+  user_id text not null,
+  author text not null check (length(author) between 2 and 40),
+  body text not null check (length(body) <= 1500),
+  hidden boolean not null default false,
+  deleted boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists community_comments_post_idx on dediko.community_comments(post_id, created_at, id);
+create table if not exists dediko.community_reports (
+  user_id text not null,
+  kind text not null check (kind in ('post', 'comment')),
+  target_id uuid not null,
+  reason text not null check (reason in ('medical', 'abuse', 'privacy', 'spam', 'other')),
+  created_at timestamptz not null default now(),
+  primary key (target_id, kind, user_id)
+);
+create table if not exists dediko.community_limits (
+  user_id text not null,
+  kind text not null check (kind in ('post', 'comment', 'report')),
+  started_at timestamptz not null default now(),
+  used integer not null,
+  primary key (user_id, kind)
+);
 revoke all on all tables in schema dediko from public;

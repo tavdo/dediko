@@ -4,7 +4,7 @@ import { lessonCategories } from './lessons.js';
 
 const app = document.querySelector('#admin-app');
 const editor = document.querySelector('#admin-editor');
-const labels = { overview: 'მიმოხილვა', ideas: 'იდეები', lessons: 'ვიდეოგაკვეთილები' };
+const labels = { overview: 'მიმოხილვა', ideas: 'იდეები', lessons: 'ვიდეოგაკვეთილები', community: 'საზოგადოება' };
 const stages = { pregnant: 'ორსულებისთვის', mother: 'ახალბედა დედებისთვის' };
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -58,6 +58,16 @@ function overview() {
     </div>`;
 }
 
+function communityList() {
+  return `<section class="admin-panel"><p>პოსტები და კომენტარები · გასაჩივრებული ჩანაწერები პირველია · ნაჩვენებია ბოლო 200 ჩანაწერი.</p>
+    ${data.community.map(item => `<article class="admin-row">
+      <div><span class="admin-chip">${item.kind === 'post' ? 'პოსტი' : 'კომენტარი'} · ${item.reports} გასაჩივრება</span>
+      <h2>${escape(item.title)}</h2><p>${escape(item.author)}</p><p style="white-space:pre-wrap;overflow-wrap:anywhere">${escape(item.body)}</p></div>
+      <span class="admin-chip">${item.hidden ? 'დამალულია' : 'ხილულია'}</span>
+      <button data-action="moderate-community" data-id="${item.id}" data-kind="${item.kind}" data-hidden="${!item.hidden}">${item.hidden ? 'გამოჩენა' : 'დამალვა'}</button>
+    </article>`).join('') || '<p>პოსტები და კომენტარები ჯერ არ არის.</p>'}</section>`;
+}
+
 function contentList() {
   const isLesson = section === 'lessons';
   const items = isLesson ? data.lessons : data.ideas;
@@ -90,7 +100,7 @@ function render() {
   let content;
   if (loading) content = '<p class="admin-panel" role="status">მონაცემები იტვირთება…</p>';
   else if (errorMessage) content = `<div class="admin-panel"><p role="alert">${escape(errorMessage)}</p><button data-action="retry">ხელახლა ცდა</button></div>`;
-  else content = section === 'overview' ? overview() : contentList();
+  else content = section === 'overview' ? overview() : section === 'community' ? communityList() : contentList();
   app.innerHTML = `<div class="admin-shell">
     <aside class="admin-sidebar">${brand}<p>საიტის მართვა</p>
       <nav aria-label="მართვის განყოფილებები">${Object.entries(labels).map(([id, label]) =>
@@ -222,6 +232,14 @@ app.addEventListener('click', async event => {
   const button = event.target.closest('button');
   if (!button) return;
   if (button.dataset.section) return openSection(button.dataset.section);
+  if (button.dataset.action === 'moderate-community') {
+    button.disabled = true;
+    try {
+      await accountRequest('admin?section=community', 'POST', { id: button.dataset.id, kind: button.dataset.kind, hidden: button.dataset.hidden === 'true' });
+      await openSection('community');
+    } catch (error) { errorMessage = error.message; render(); }
+    return;
+  }
   if (button.dataset.action === 'retry') return openSection(user ? section : 'overview');
   if (button.dataset.action === 'add-lesson') return openEditor(null);
   if (button.dataset.action === 'edit') {

@@ -3,6 +3,7 @@ import { antenatalSource, vaccinationSource, healthEntry, hpvMinimumDate, isBirt
 import { pregnancyGrowthCard, growthWeekContent } from './pregnancy-growth.js';
 import { parseVideoUrl, lessonsForStage, lessonCategories, migrateLessonState } from './lessons.js';
 import { proPrice, trialStatus, startProTrial, weekStart, shiftDate, weeklyTemplate, migrateProState, remindersToCalendar } from './pro.js';
+import { createCommunityUI } from './community-ui.js';
 import { ideaCategories, ideaStatuses, filterIdeas, validateIdea } from './ideas.js';
 import { accountRequest, authCall, setAccountOwner, browserZone, pushSupport, currentSubscription, enablePush, disablePush, serviceWorkerReady } from './account-client.js';
 
@@ -37,7 +38,7 @@ let data = load();
 const account = { ready:false, user:null, revision:0, timezone:browserZone(), status:'loading', dirty:false, conflict:false, generation:0, config:null, subscribed:false, pushBusy:false };
 const localDate = (now = new Date()) => account.user ? new Intl.DateTimeFormat('en-CA', { timeZone:account.timezone, year:'numeric',month:'2-digit',day:'2-digit' }).format(now) : browserLocalDate(now);
 const requestedPage = new URLSearchParams(location.search).get('page');
-let view = ['pro','ideas'].includes(requestedPage) ? requestedPage : location.hash === '#team' ? 'landing' : data.profile ? 'dashboard' : 'landing';
+let view = ['pro','ideas','community'].includes(requestedPage) ? requestedPage : location.hash === '#team' ? 'landing' : data.profile ? 'dashboard' : 'landing';
 let filter = 'today';
 let demo = false;
 let beforeDemoData = null;
@@ -52,6 +53,16 @@ let renderedProActive = trialStatus(data.pro).active;
 let ideaBoard = {items:[],loaded:false,loading:false,error:'',busy:false};
 let ideaFilters = {category:'all',status:'all',search:'',sort:'popular',mine:false};
 let ideaDraft = null;
+const community = createCommunityUI({
+  getUser: () => demo ? null : account.user,
+  changed: () => { if (view === 'community') render(); },
+  openDialog, closeDialog: () => dialog.close(), toast,
+  login: () => authDialog('login'),
+  date: value => formatDate(localDate(new Date(value)), { year: 'numeric' })
+});
+function publicCommunityPage() {
+  return `<header class="site-header wrap"><a class="brand" href="/" data-action="home">${logo()}</a><a class="text-button" href="/" data-action="home">მთავარი გვერდი →</a></header><main class="wrap public-community" id="main">${community.view()}</main>`;
+}
 
 function load() {
   try {
@@ -90,7 +101,7 @@ function stageChoices(selected) {
 }
 
 function landing() {
-  return `<header class="site-header wrap"><a class="brand" href="#" aria-label="Dediko მთავარი">${logo()}</a><nav aria-label="მთავარი ნავიგაცია"><a href="#how">როგორ მუშაობს</a><a href="#for-you">შენთვის</a><a href="#reminders">შეხსენებები</a><a href="#video-lessons">ვიდეოები</a><a href="?page=pro" data-action="pro" class="pro-nav-link">Dediko Pro ✧</a><a href="?page=ideas" data-action="ideas">იდეები</a><a href="#team">გუნდი</a></nav><button class="button button-small" data-action="register">შექმენი შენი სივრცე ${icon('arrow')}</button></header>
+  return `<header class="site-header wrap"><a class="brand" href="#" aria-label="Dediko მთავარი">${logo()}</a><nav aria-label="მთავარი ნავიგაცია"><a href="#how">როგორ მუშაობს</a><a href="#for-you">შენთვის</a><a href="#reminders">შეხსენებები</a><a href="#video-lessons">ვიდეოები</a><a href="?page=pro" data-action="pro" class="pro-nav-link">Dediko Pro ✧</a><a href="?page=community" data-action="community">საზოგადოება</a><a href="?page=ideas" data-action="ideas">იდეები</a><a href="#team">გუნდი</a></nav><button class="button button-small" data-action="register">შექმენი შენი სივრცე ${icon('arrow')}</button></header>
   <main id="main"><section class="hero wrap"><div class="hero-copy"><div class="eyebrow"><span class="tiny-heart">${icon('heart')}</span> შენთან, დედობის ყოველ ნაბიჯზე</div><h1>ახალი სიცოცხლე.<br>ახალი შენ.<br><span>ერთად, უფრო მშვიდად.</span></h1><p>პატარას მოლოდინიდან პირველ ჩახუტებამდე —<br class="desktop-break"> შენი პირადი სივრცე ზრუნვისთვის, დაგეგმვისთვის<br class="desktop-break"> და ყველაფრის მშვიდად მოსასწრებად.</p><div class="hero-actions"><button class="button" data-action="register">დაიწყე შენი ამბავი ${icon('arrow')}</button><button class="text-button" data-action="demo">დაათვალიერე სივრცე <span>↗</span></button></div><div class="hero-note">${icon('check')} შენი ტემპით ${icon('check')} შენზე მორგებული ${icon('check')} სიყვარულით შექმნილი</div></div>
   <div class="hero-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><span class="art-spark spark-one">✧</span><span class="art-spark spark-two">✧</span><div class="floating-note note-top">${icon('heart')} <span>პატარა ნაბიჯები,<br><strong>დიდი სიყვარული</strong></span></div><div class="preview-card"><div class="preview-top"><span class="preview-avatar">ა</span><div><span class="mini-label">შენი ყოველდღიური თანამგზავრი</span><strong>დილა მშვიდობისა, დედიკო <span class="pink">♡</span></strong></div><span class="preview-dot"></span></div><div class="preview-greeting"><span class="tag">${icon('spark')} შენი სივრცის მაგალითი</span><h2>დღეს საკუთარ თავსაც<br>მოუსმინე.</h2><p>ყველა პატარა ზრუნვა მნიშვნელოვანია.</p><div class="greeting-flower" aria-hidden="true">✿</div></div><div class="preview-reminders"><div class="row-between"><h3>დღის პატარა გეგმები</h3><span class="mini-label">დღეს</span></div><div class="preview-reminder">${icon('heart', 'pink')}<span><strong>დრო შენზე ზრუნვისთვის</strong><small>ცოტა შეისვენე და ამოისუნთქე</small></span><span class="preview-time">10:00</span></div><div class="preview-reminder">${icon('calendar', 'blue')}<span><strong>შენი დაგეგმილი ვიზიტი</strong><small>ყველაფერი ერთ სივრცეში</small></span><span class="preview-time">14:30</span></div><div class="preview-reminder completed">${icon('check')}<span><strong>ერთი პატარა ნაბიჯი შენთვის</strong><small>დღეს უკვე მოასწარი</small></span><span class="preview-time">09:00</span></div></div><div class="preview-bottom"><span class="progress-dots"><i></i><i></i><i></i><i></i><i></i></span><span>შენ შესანიშნავად ართმევ თავს ♡</span></div></div><div class="floating-note note-bottom"><span class="note-bell">${icon('bell')}</span><span><strong>შენთვის მნიშვნელოვანს</strong><br>ერთად გავიხსენებთ.</span><span class="note-heart">♡</span></div></div></section>
   <div class="promise-strip"><div class="wrap">${icon('leaf')} ცოტა მეტი სიმშვიდე <span>✦</span> ცოტა ნაკლები საფიქრალი <span>✦</span> მეტი დრო შენთვის და პატარასთვის ${icon('heart')}</div></div>
@@ -134,7 +145,7 @@ function dashboard() {
     const dateOrder = `${nextOccurrence(a, localDate())}${a.time}`.localeCompare(`${nextOccurrence(b, localDate())}${b.time}`);
     return filter === 'health' ? dateOrder : Number(isComplete(a)) - Number(isComplete(b)) || dateOrder;
   });
-  return `<div class="dashboard-shell"><aside class="sidebar"><a href="#" class="brand" data-action="home">${logo()}</a><div class="sidebar-label">შენი პირადი სივრცე</div><nav aria-label="პირადი სივრცე"><button class="sidebar-item ${view === 'dashboard' ? 'active' : ''}" data-action="dashboard">${icon('grid')} ჩემი დღე</button><button class="sidebar-item" data-action="all-reminders">${icon('bell')} შეხსენებები <span class="nav-count">${reminders.length}</span></button><button class="sidebar-item ${view === 'lessons' ? 'active' : ''}" data-action="lessons">${icon('play')} ვიდეოგაკვეთილები</button><button class="sidebar-item ${view === 'ideas' ? 'active' : ''}" data-action="ideas">${icon('leaf')} იდეები Dediko-სთვის</button><button class="sidebar-item pro-nav-link ${['pro', 'planner'].includes(view) ? 'active' : ''}" data-action="pro">${icon('spark')} Dediko Pro <span class="pro-mini">${trialStatus(data.pro).active ? 'აქტიური' : 'ახალი'}</span></button><button class="sidebar-item ${view === 'profile' ? 'active' : ''}" data-action="profile">${icon('user')} ჩემი პროფილი</button></nav><div class="sidebar-kind"><span>პატარა შეხსენება</span><div>♡</div><strong>საკუთარ თავზე ზრუნვაც<br>პატარაზე ზრუნვაა.</strong><p>შენც იმსახურებ შესვენებას.</p></div><button class="sidebar-item sidebar-bottom" data-action="${demo ? 'exit-demo' : 'home'}">${icon('logout')} ${demo ? 'დემოდან გასვლა' : 'მთავარი გვერდი'}</button></aside><div class="dashboard-content"><header class="dashboard-header"><div class="mobile-brand">${logo()}</div><span class="header-date">${formatDate(localDate(), { weekday: 'long', day: 'numeric', month: 'long' })}</span><div class="header-right">${trialStatus(data.pro).active ? '<button class="pro-header-badge" data-action="planner">✧ PRO</button>' : ''}<span class="stage-pill">${icon(profile.stage === 'pregnant' ? 'heart' : 'baby')}${stageName(profile.stage)}</span><button class="avatar" data-action="profile" aria-label="ჩემი პროფილი">${escape(profile.name.slice(0, 1))}</button></div></header><nav class="mobile-nav" aria-label="მობილური ნავიგაცია"><button data-action="dashboard">${icon('grid')} ჩემი დღე</button><button data-action="all-reminders">${icon('bell')} შეხსენებები</button><button data-action="lessons">${icon('play')} ვიდეოები</button><button data-action="ideas">${icon('leaf')} იდეები</button><button data-action="pro">${icon('spark')} Pro</button><button data-action="profile">${icon('user')} პროფილი</button></nav><main class="dashboard-main" id="main">${demo ? '<div class="demo-banner"><span>ეს არის დემო სივრცე — ცვლილებები არ შეინახება.</span><button data-action="register">შექმენი შენი სივრცე →</button></div>' : ''}${view === 'profile' ? profileView() : view === 'ideas' ? ideasView() : view === 'pro' ? proView() : view === 'planner' ? plannerView() : view === 'lessons' ? lessonsView() : `<div class="dashboard-title"><div><span class="eyebrow">დღის დასაწყისი შენია</span><h1>გამარჯობა, ${escape(profile.name)} <span>♡</span></h1><p>მოდი, დღესაც პატარა ნაბიჯებით წავიდეთ.</p></div><button class="button" data-action="add-reminder">${icon('plus')} ახალი შეხსენება</button></div><section class="welcome-panel ${profile.stage === 'mother' ? 'mother-panel' : ''}"><div><span class="tag">${icon('spark')} ${profile.stage === 'pregnant' ? 'პატარას მოლოდინში' : 'ახალი დღე, ერთად'}</span><h2>${profile.stage === 'pregnant' ? 'შენი ყველაზე თბილი<br>მოლოდინის დღეები.' : 'პატარა ჩახუტებები.<br>დიდი ახალი ამბავი.'}</h2><p>${profile.stage === 'pregnant' ? 'იყავი საკუთარ თავთან ისეთივე ნაზი, როგორც შენს პატარასთან.' : 'ახალ რიტმს ნელ-ნელა იპოვი. საკუთარ თავსაც მოუსმინე.'}</p><span class="date-caption">${icon('calendar')} ${profile.stage === 'pregnant' ? 'პატარას ველოდებით:' : 'პატარას დაბადების დღე:'} ${formatDate(profile.referenceDate, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div><div class="welcome-art" aria-hidden="true"><span>♡</span><i>✧</i><small>შენ შესანიშნავად<br>ართმევ თავს</small></div></section>${pregnant ? pregnancyGrowthCard(pregnancyAge(profile.referenceDate, localDate())) : ''}<div class="dashboard-grid"><section class="reminders-panel"><div class="row-between panel-title"><div><span class="eyebrow">ცოტა მეტი სიმსუბუქე</span><h2>შენი შეხსენებები</h2></div>${icon('bell', 'pink')}</div><div class="tabs" role="group" aria-label="შეხსენებების ფილტრი">${[['today', 'დღეს'], ['all', 'ყველა'], ['personal', 'პირადი'], ['suggested', 'შეთავაზებული'], ['health', pregnant ? 'ვიზიტები' : 'აცრები']].map(([key, name]) => `<button data-action="filter" data-filter="${key}" aria-pressed="${filter === key}" class="${filter === key ? 'selected' : ''}">${name}</button>`).join('')}</div>${calendarNote}<div class="reminders-list">${shown.length ? shown.map(reminderRow).join('') : `<div class="empty-state">${icon('leaf')}<h3>${filter === 'today' ? 'დღეს თავისუფალი სივრცე გაქვს' : 'აქ შენი გეგმები გამოჩნდება'}</h3><p>დაამატე შეხსენება და მნიშვნელოვანი ამბები ერთ ადგილას მოაგროვე.</p><button class="text-button" data-action="add-reminder">${icon('plus')} შეხსენების დამატება</button></div>`}</div><button class="add-reminder-inline" data-action="add-reminder">${icon('plus')} კიდევ ერთი პატარა გეგმა</button></section><aside class="day-aside"><section class="day-progress"><span class="eyebrow">შენი დღევანდელი ნაბიჯები</span><div class="progress-ring" style="--progress:${today.length ? (done / today.length) * 100 : 0}%"><div><strong>${done}<small> / ${today.length}</small></strong><span>შესრულებულია</span></div></div><h3>შენი ტემპი საკმარისია ♡</h3><p>ყველაფრის ერთ დღეში<br>მოსწრება საჭირო არ არის.</p></section><section class="tip-card">${icon('spark')}<h3>სივრცე შენთან ერთად იცვლება</h3><p>შეცვალე შენი ეტაპი პროფილიდან და მიიღე შესაბამისი შეხსენებები.</p><button class="text-button" data-action="profile">ჩემი პროფილი ${icon('arrow')}</button></section></aside></div>`}<p class="local-notice">${icon('heart')} ${account.user ? 'შენი პირადი ანგარიში · მონაცემები სინქრონიზდება · შეტყობინებები ჩართე პროფილიდან' : 'ლოკალური სივრცე · ანგარიშის შექმნით მონაცემებს სხვა მოწყობილობაზეც ნახავ'}</p></main></div></div>`;
+  return `<div class="dashboard-shell"><aside class="sidebar"><a href="#" class="brand" data-action="home">${logo()}</a><div class="sidebar-label">შენი პირადი სივრცე</div><nav aria-label="პირადი სივრცე"><button class="sidebar-item ${view === 'dashboard' ? 'active' : ''}" data-action="dashboard">${icon('grid')} ჩემი დღე</button><button class="sidebar-item" data-action="all-reminders">${icon('bell')} შეხსენებები <span class="nav-count">${reminders.length}</span></button><button class="sidebar-item ${view === 'lessons' ? 'active' : ''}" data-action="lessons">${icon('play')} ვიდეოგაკვეთილები</button><button class="sidebar-item ${view === 'community' ? 'active' : ''}" data-action="community">${icon('heart')} საზოგადოება</button><button class="sidebar-item ${view === 'ideas' ? 'active' : ''}" data-action="ideas">${icon('leaf')} იდეები Dediko-სთვის</button><button class="sidebar-item pro-nav-link ${['pro', 'planner'].includes(view) ? 'active' : ''}" data-action="pro">${icon('spark')} Dediko Pro <span class="pro-mini">${trialStatus(data.pro).active ? 'აქტიური' : 'ახალი'}</span></button><button class="sidebar-item ${view === 'profile' ? 'active' : ''}" data-action="profile">${icon('user')} ჩემი პროფილი</button></nav><div class="sidebar-kind"><span>პატარა შეხსენება</span><div>♡</div><strong>საკუთარ თავზე ზრუნვაც<br>პატარაზე ზრუნვაა.</strong><p>შენც იმსახურებ შესვენებას.</p></div><button class="sidebar-item sidebar-bottom" data-action="${demo ? 'exit-demo' : 'home'}">${icon('logout')} ${demo ? 'დემოდან გასვლა' : 'მთავარი გვერდი'}</button></aside><div class="dashboard-content"><header class="dashboard-header"><div class="mobile-brand">${logo()}</div><span class="header-date">${formatDate(localDate(), { weekday: 'long', day: 'numeric', month: 'long' })}</span><div class="header-right">${trialStatus(data.pro).active ? '<button class="pro-header-badge" data-action="planner">✧ PRO</button>' : ''}<span class="stage-pill">${icon(profile.stage === 'pregnant' ? 'heart' : 'baby')}${stageName(profile.stage)}</span><button class="avatar" data-action="profile" aria-label="ჩემი პროფილი">${escape(profile.name.slice(0, 1))}</button></div></header><nav class="mobile-nav" aria-label="მობილური ნავიგაცია"><button data-action="dashboard">${icon('grid')} ჩემი დღე</button><button data-action="all-reminders">${icon('bell')} შეხსენებები</button><button data-action="lessons">${icon('play')} ვიდეოები</button><button data-action="ideas">${icon('leaf')} იდეები</button><button data-action="pro">${icon('spark')} Pro</button><button data-action="profile">${icon('user')} პროფილი</button></nav><main class="dashboard-main" id="main">${demo ? '<div class="demo-banner"><span>ეს არის დემო სივრცე — ცვლილებები არ შეინახება.</span><button data-action="register">შექმენი შენი სივრცე →</button></div>' : ''}${view === 'profile' ? profileView() : view === 'community' ? community.view() : view === 'ideas' ? ideasView() : view === 'pro' ? proView() : view === 'planner' ? plannerView() : view === 'lessons' ? lessonsView() : `<div class="dashboard-title"><div><span class="eyebrow">დღის დასაწყისი შენია</span><h1>გამარჯობა, ${escape(profile.name)} <span>♡</span></h1><p>მოდი, დღესაც პატარა ნაბიჯებით წავიდეთ.</p></div><button class="button" data-action="add-reminder">${icon('plus')} ახალი შეხსენება</button></div><section class="welcome-panel ${profile.stage === 'mother' ? 'mother-panel' : ''}"><div><span class="tag">${icon('spark')} ${profile.stage === 'pregnant' ? 'პატარას მოლოდინში' : 'ახალი დღე, ერთად'}</span><h2>${profile.stage === 'pregnant' ? 'შენი ყველაზე თბილი<br>მოლოდინის დღეები.' : 'პატარა ჩახუტებები.<br>დიდი ახალი ამბავი.'}</h2><p>${profile.stage === 'pregnant' ? 'იყავი საკუთარ თავთან ისეთივე ნაზი, როგორც შენს პატარასთან.' : 'ახალ რიტმს ნელ-ნელა იპოვი. საკუთარ თავსაც მოუსმინე.'}</p><span class="date-caption">${icon('calendar')} ${profile.stage === 'pregnant' ? 'პატარას ველოდებით:' : 'პატარას დაბადების დღე:'} ${formatDate(profile.referenceDate, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div><div class="welcome-art" aria-hidden="true"><span>♡</span><i>✧</i><small>შენ შესანიშნავად<br>ართმევ თავს</small></div></section>${pregnant ? pregnancyGrowthCard(pregnancyAge(profile.referenceDate, localDate())) : ''}<div class="dashboard-grid"><section class="reminders-panel"><div class="row-between panel-title"><div><span class="eyebrow">ცოტა მეტი სიმსუბუქე</span><h2>შენი შეხსენებები</h2></div>${icon('bell', 'pink')}</div><div class="tabs" role="group" aria-label="შეხსენებების ფილტრი">${[['today', 'დღეს'], ['all', 'ყველა'], ['personal', 'პირადი'], ['suggested', 'შეთავაზებული'], ['health', pregnant ? 'ვიზიტები' : 'აცრები']].map(([key, name]) => `<button data-action="filter" data-filter="${key}" aria-pressed="${filter === key}" class="${filter === key ? 'selected' : ''}">${name}</button>`).join('')}</div>${calendarNote}<div class="reminders-list">${shown.length ? shown.map(reminderRow).join('') : `<div class="empty-state">${icon('leaf')}<h3>${filter === 'today' ? 'დღეს თავისუფალი სივრცე გაქვს' : 'აქ შენი გეგმები გამოჩნდება'}</h3><p>დაამატე შეხსენება და მნიშვნელოვანი ამბები ერთ ადგილას მოაგროვე.</p><button class="text-button" data-action="add-reminder">${icon('plus')} შეხსენების დამატება</button></div>`}</div><button class="add-reminder-inline" data-action="add-reminder">${icon('plus')} კიდევ ერთი პატარა გეგმა</button></section><aside class="day-aside"><section class="day-progress"><span class="eyebrow">შენი დღევანდელი ნაბიჯები</span><div class="progress-ring" style="--progress:${today.length ? (done / today.length) * 100 : 0}%"><div><strong>${done}<small> / ${today.length}</small></strong><span>შესრულებულია</span></div></div><h3>შენი ტემპი საკმარისია ♡</h3><p>ყველაფრის ერთ დღეში<br>მოსწრება საჭირო არ არის.</p></section><section class="tip-card">${icon('spark')}<h3>სივრცე შენთან ერთად იცვლება</h3><p>შეცვალე შენი ეტაპი პროფილიდან და მიიღე შესაბამისი შეხსენებები.</p><button class="text-button" data-action="profile">ჩემი პროფილი ${icon('arrow')}</button></section></aside></div>`}<p class="local-notice">${icon('heart')} ${account.user ? 'შენი პირადი ანგარიში · მონაცემები სინქრონიზდება · შეტყობინებები ჩართე პროფილიდან' : 'ლოკალური სივრცე · ანგარიშის შექმნით მონაცემებს სხვა მოწყობილობაზეც ნახავ'}</p></main></div></div>`;
 }
 
 function currentLessons() {
@@ -390,8 +401,8 @@ function mobileGlassNav() {
   const items=[
     {action:'home',label:'მთავარი',symbol:'grid',active:view==='landing'},
     {action:'lessons',label:'ვიდეოები',symbol:'play',active:view==='lessons'},
-    {action:'ideas',label:'იდეები',symbol:'leaf',active:view==='ideas'},
-    {action:'dock-menu',label:'მენიუ',symbol:'menu',active:['dashboard','profile','pro','planner'].includes(view)}
+    {action:'community',label:'დედიკოები',symbol:'heart',active:view==='community'},
+    {action:'dock-menu',label:'მენიუ',symbol:'menu',active:['dashboard','profile','pro','planner','ideas'].includes(view)}
   ];
   return `<nav class="mobile-glass-nav" aria-label="ქვედა ნავიგაცია">${items.map(item=>`<button type="button" class="glass-nav-item" data-action="${item.action}" ${item.active?'aria-current="page"':''} ${item.action==='dock-menu'?'aria-haspopup="dialog" aria-controls="form-dialog"':''}>${icon(item.symbol)}<span>${item.label}</span></button>`).join('')}</nav>`;
 }
@@ -401,6 +412,7 @@ function openMobileMenu() {
     {action:'dashboard',title:'ჩემი დღე',symbol:'heart'},
     {action:'all-reminders',title:'შეხსენებები',symbol:'bell'},
     {action:'lessons',title:'ვიდეოგაკვეთილები',symbol:'play'},
+    {action:'community',title:'დედიკოს საზოგადოება',symbol:'heart'},
     {action:'ideas',title:'იდეები Dediko-სთვის',symbol:'leaf'},
     {action:'pro',title:'Dediko Pro',symbol:'spark'},
     {action:'team',title:'ჩვენი გუნდი',symbol:'user'},
@@ -413,7 +425,7 @@ function render() {
   if (!account.ready) { app.innerHTML='<main class="auth-loading" id="main"><h1>Dediko ♡</h1><p>შენს სივრცეს ვამზადებთ…</p></main>'; return; }
   renderedDate = localDate();
   renderedProActive = trialStatus(data.pro).active;
-  app.innerHTML = (view === 'landing' ? landing() : view === 'pro' && !data.profile ? publicProPage() : view === 'ideas' && !data.profile ? publicIdeasPage() : dashboard()) + mobileGlassNav();
+  app.innerHTML = (view === 'landing' ? landing() : view === 'pro' && !data.profile ? publicProPage() : view === 'ideas' && !data.profile ? publicIdeasPage() : view === 'community' && !data.profile ? publicCommunityPage() : dashboard()) + mobileGlassNav();
   const main = app.querySelector('.dashboard-main');
   if (main && !demo) main.insertAdjacentHTML('afterbegin', accountBanner());
   if (view === 'profile' && !demo) {
@@ -424,7 +436,8 @@ function render() {
   }
   if (['lessons', 'planner'].includes(view) && publicCatalog.status === 'idle') loadPublicLessons();
   if (view === 'landing') app.querySelector('.site-header')?.insertAdjacentHTML('beforeend', `<button class="text-button" data-action="${account.user ? 'dashboard' : 'login'}">${account.user ? 'ჩემი სივრცე' : 'შესვლა'}</button>`);
-  document.title = `Dediko — ${view === 'landing' ? 'შენთან, დედობის ყოველ ნაბიჯზე' : view === 'ideas' ? 'იდეები Dediko-სთვის' : view === 'pro' ? 'Dediko Pro' : view === 'planner' ? 'ჩემი Pro გეგმა' : view === 'profile' ? 'ჩემი პროფილი' : view === 'lessons' ? 'ვიდეოგაკვეთილები' : 'ჩემი დღე'}`;
+  if (view === 'community') community.ensureLoaded();
+  document.title = `Dediko — ${view === 'landing' ? 'შენთან, დედობის ყოველ ნაბიჯზე' : view === 'community' ? 'დედიკოს საზოგადოება' : view === 'ideas' ? 'იდეები Dediko-სთვის' : view === 'pro' ? 'Dediko Pro' : view === 'planner' ? 'ჩემი Pro გეგმა' : view === 'profile' ? 'ჩემი პროფილი' : view === 'lessons' ? 'ვიდეოგაკვეთილები' : 'ჩემი დღე'}`;
 }
 function openDialog(content) {
   dialog.classList.remove('video-dialog', 'dock-menu-dialog');
@@ -482,6 +495,7 @@ document.addEventListener('click', event => {
     }
     if(['dashboard','all-reminders'].includes(action)&&!data.profile)startDemo();
   }
+  if(action==='community'){view='community';history.replaceState(null,'','?page=community');render();window.scrollTo(0,0);return;}
   if(action==='ideas'){view='ideas';history.replaceState(null,'','?page=ideas');render();window.scrollTo(0,0);loadIdeas();return;}
   if(action==='refresh-ideas'){loadIdeas();return;}
   if(action==='new-idea'){newIdeaDialog();return;}
@@ -731,7 +745,7 @@ async function initializeAccount() {
   try {
     account.config = await accountRequest('config');
     adoptAccount(await accountRequest('account'));
-    if (!['pro','ideas'].includes(requestedPage) && location.hash !== '#team') view = data.profile ? 'dashboard' : 'landing';
+    if (!['pro','ideas','community'].includes(requestedPage) && location.hash !== '#team') view = data.profile ? 'dashboard' : 'landing';
   } catch (error) {
     account.sessionError = error.status !== 401;
     if (account.sessionError) account.error = error.message;
@@ -794,8 +808,9 @@ async function submitAuthForm(form) {
     if (form.id === 'login-form') {
       await authCall('signIn.email', values);
       adoptAccount(await accountRequest('account'));
-      dialog.close(); view = data.profile ? 'dashboard' : 'landing'; render(); refreshPushState();
-      if (!data.profile) register();
+      const returnToCommunity = view === 'community';
+      dialog.close(); view = returnToCommunity ? 'community' : data.profile ? 'dashboard' : 'landing'; render(); refreshPushState();
+      if (!data.profile && !returnToCommunity) register();
     } else if (form.id === 'forgot-form') {
       await authCall('requestPasswordReset', { email:values.email, redirectTo:`${location.origin}/?page=reset-password` });
       openDialog('<h2 id="dialog-title">შეამოწმე ელფოსტა ♡</h2><p class="dialog-intro">თუ ამ ელფოსტაზე ანგარიში არსებობს, აღდგენის ბმულს მიიღებ. შეამოწმე Spam საქაღალდეც.</p><button class="button full-width" data-action="login">შესვლაზე დაბრუნება</button>');
@@ -846,7 +861,7 @@ async function handleAccountAction(action, button) {
       clearTimeout(saveTimer);
       await disablePush(); await authCall('signOut');
       try { localStorage.removeItem(draftKey()); } catch { /* No local cloud cache. */ }
-      account.user = null; account.dirty = false; account.conflict = false; account.subscribed = false;
+      account.user = null; community.reset(); account.dirty = false; account.conflict = false; account.subscribed = false;
       try { localStorage.setItem('dediko.signed-out', String(Date.now())); } catch { /* Other tabs also revalidate on focus. */ }
       data = load(); demo = false; view = 'landing'; if (dialog.open) dialog.close(); history.replaceState(null, '', '/'); render(); return;
     }
@@ -887,7 +902,7 @@ document.addEventListener('visibilitychange', async () => {
 function clearAccountSession() {
   clearTimeout(saveTimer);
   try { if (draftKey()) localStorage.removeItem(draftKey()); } catch { /* Clear the in-memory account too. */ }
-  setAccountOwner(null); account.user = null; account.dirty = false; account.conflict = false; account.subscribed = false;
+  setAccountOwner(null); account.user = null; community.reset(); account.dirty = false; account.conflict = false; account.subscribed = false;
   data = load(); demo = false; view = 'landing'; if (dialog.open) dialog.close(); render();
 }
 window.addEventListener('storage', event => { if (event.key === 'dediko.signed-out' && account.user) clearAccountSession(); });

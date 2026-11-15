@@ -12,7 +12,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
     if (path.startsWith('/api/') && path !== '/api/ideas') {
-      const routes = { account: '../api/account.js', admin: '../api/admin.js', auth: '../api/auth.js', push: '../api/push.js', config: '../api/config.js', lessons: '../api/lessons.js' };
+      const routes = { community: '../api/community.js', account: '../api/account.js', admin: '../api/admin.js', auth: '../api/auth.js', push: '../api/push.js', config: '../api/config.js', lessons: '../api/lessons.js' };
       const key = path.split('/')[2];
       const route = Object.hasOwn(routes, key) ? routes[key] : null;
       if (!route) { res.writeHead(404); res.end(); return; }
@@ -39,7 +39,7 @@ const server = http.createServer(async (req, res) => {
       const result = await build({ entryPoints:[resolve(root, '.' + path)], bundle:true, format:'esm', target:'es2022', write:false });
       res.writeHead(200, { 'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-cache' }); res.end(result.outputFiles[0].contents); return;
     }
-    if(!['/','/index.html','/admin','/admin.html','/admin.css','/styles.css','/lessons.css','/pro.css','/ideas.css','/team.css','/mobile-nav.css','/account.css','/sw.js','/manifest.webmanifest','/model.js','/lessons.js','/pro.js','/ideas.js'].includes(path)&&!path.startsWith('/assets/')){res.writeHead(404);res.end('Not found');return;}
+    if(!['/','/index.html','/admin','/admin.html','/admin.css','/styles.css','/lessons.css','/pro.css','/ideas.css','/community.css','/team.css','/mobile-nav.css','/account.css','/sw.js','/manifest.webmanifest','/model.js','/lessons.js','/pro.js','/ideas.js'].includes(path)&&!path.startsWith('/assets/')){res.writeHead(404);res.end('Not found');return;}
     const staticPath = path === '/' ? '/index.html' : path === '/admin' ? '/admin.html' : path;
     const file = resolve(root, '.' + staticPath);
     if (!file.startsWith(root + sep)) { res.writeHead(403); res.end(); return; }

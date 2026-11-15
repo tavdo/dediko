@@ -52,6 +52,16 @@ Queues are at-least-once and push providers/operating systems control final deli
 - Seven-day Pro demo: weekly plans/templates, private notes, learning path and ICS export. Proposed price remains 19 GEL/month; no payments, automatic renewal or paid entitlement are implemented. Stored demo state is not trusted authorization for a subscription. Calendar export is a floating-time snapshot.
 - Shared Ideas board (below), team cards, responsive pink/blue/lavender design, and mobile glass navigation with safe-area spacing and menu sheet.
 
+## Community
+
+Open `/?page=community` from the main navigation, sidebar, or mobile glass menu. Members sign in to read the feed, publish a question or personal experience, filter by topic/type, and comment. The author explicitly chooses a public nickname and consents to publishing; account emails, IDs, pregnancy dates, and private profile content are never returned by this API. No doctor-verification role or guaranteed medical replies are implemented. Peer replies are identified as personal experiences and the page explains they do not replace a clinician.
+
+`api/community.js` uses the existing managed session and same-origin/account-owner protections. Posts, comments, reports, and atomic per-account hourly limits persist in the dedicated Postgres schema. Apply `npm run db:migrate` against the intended linked database before releasing this feature. The feed uses batches of 20; a conversation supports 300 comments in total. Limits are five posts, 30 comments, and 20 reports per account per hour. Failures retain the form contents and show an error; writes do not silently fall back to local storage.
+
+Authors can permanently clear their own post/comment text. Deleting or hiding a post removes its conversation from member reads. Members can report posts/comments once per account; the admin panel's Community section prioritizes reported content and allows authorized admins to hide or restore posts/comments. It displays up to 200 records. Moderation is manual; there is no automated clinical review or claim of immediate response. Public nicknames are self-chosen, not verified identities.
+
+`npm run check` includes community validation and HTTP-boundary tests. Run `node scripts/verify-community.mjs` explicitly to verify persistence, ownership, moderation, and concurrent limits against the linked database; it creates marked temporary content and removes it afterward.
+
 ## Shared ideas board
 
 Open `/?page=ideas`. Both Free/Pro users and visitors can submit an idea, choose a category, search/filter by status or category, sort by popularity/newest, and view “My ideas”. Submission requires explicit public-posting consent. Profile names, pregnancy/birth dates, private reminders and notes are not sent to this API. New ideas receive `reviewing` status and the submitting browser's first vote.

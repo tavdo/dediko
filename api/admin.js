@@ -6,6 +6,7 @@ import { adminIdeas, moderateIdea } from '../server/ideas-service.js';
 import { ideaUpdates } from '../server/idea-statuses.js';
 import { blobIdeasStore } from '../server/ideas-store.js';
 import { lessonCatalog, saveCatalogLesson } from '../server/lesson-catalog.js';
+import { createCommunityService } from '../server/community-service.js';
 
 export function createAdminHandler(store = blobIdeasStore) {
   return api(async request => {
@@ -19,9 +20,11 @@ export function createAdminHandler(store = blobIdeasStore) {
       const input = await bodyJSON(request, 10000);
       if (section === 'ideas') return respond({ idea: await moderateIdea(store, input, ideaUpdates) });
       if (section === 'lessons') return respond({ lesson: await saveCatalogLesson(input) });
+      if (section === 'community') return respond(await createCommunityService().moderate(input));
     } else if (request.method === 'GET') {
       if (section === 'ideas') return respond({ ideas: adminIdeas((await store.read()).board, ideaUpdates) });
       if (section === 'lessons') return respond({ lessons: await lessonCatalog() });
+      if (section === 'community') return respond({ community: await createCommunityService().moderationList() });
       if (section === 'overview') {
         const [[{ profiles }], { board }, lessons] = await Promise.all([
           db()`select count(*)::integer as profiles from dediko.accounts where document is not null`,
