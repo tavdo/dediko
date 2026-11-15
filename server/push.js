@@ -16,8 +16,8 @@ export function validateSubscription(value) {
   if (!/^[\w-]+$/.test(value.keys?.p256dh || '') || !/^[\w-]+$/.test(value.keys?.auth || '') || Buffer.from(value.keys.p256dh, 'base64url').length !== 65 || Buffer.from(value.keys.auth, 'base64url').length !== 16) throw new HttpError(400, 'მოწყობილობის გასაღებები არასწორია.');
   return { endpoint: url.href, keys: { p256dh: value.keys.p256dh, auth: value.keys.auth } };
 }
-export async function deliver(subscription, occurrence, test = false) {
-  return webpush.sendNotification(subscription, JSON.stringify({ title: 'Dediko ♡', body: test ? 'შეტყობინებები მზადაა — შენთან ვართ ♡' : 'შენი პატარა გეგმის დროა. გახსენი Dediko და ნახე შეხსენება.', tag: occurrence, url: '/?page=reminders' }), {
+export async function deliver(subscription, occurrence, test = false, offers = false) {
+  return webpush.sendNotification(subscription, JSON.stringify({ title: 'Dediko ♡', body: test ? 'შეტყობინებები მზადაა — შენთან ვართ ♡' : offers ? 'ახალი შეთავაზებები შენს არჩეულ კატეგორიებში. ნახე პირობები Dediko-ში.' : 'შენი პატარა გეგმის დროა. გახსენი Dediko და ნახე შეხსენება.', tag: occurrence, url: offers ? '/?page=offers' : '/?page=reminders' }), {
     vapidDetails: { subject: process.env.VAPID_SUBJECT, publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY },
     TTL: test ? 300 : 3600, urgency: 'normal', timeout: 15000
   });

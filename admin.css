@@ -89,3 +89,5 @@ dialog h2 { font-size: 1.3rem; margin: 0 0 1rem; overflow-wrap: anywhere; }
   .admin-row > div { grid-column: 1 / -1; }
   .admin-chip { justify-self: start; }
 }
+
+.admin-offers-tabs{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0}.admin-offers-tabs button[aria-pressed=true]{background:#eddfef;color:#a45898}.admin-offers-heading{margin-top:32px}.offer-admin-form .field{display:flex;flex-direction:column;gap:8px}.offer-admin-form .field-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.offer-admin-form .offer-check{display:flex;gap:10px;align-items:flex-start;margin:16px 0}.offer-admin-form .offer-check input{width:auto}.offer-admin-form .form-note{font-size:12px;color:#9985a3;line-height:1.8}@media(max-width:600px){.offer-admin-form .field-row{grid-template-columns:1fr}}

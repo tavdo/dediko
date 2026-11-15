@@ -1,6 +1,10 @@
 import { db } from '../server/db.js';
 
 const [action, address] = process.argv.slice(2);
+if (action === 'grant') {
+  console.error('Email grants no longer authorize the console. Use the single admin username; rotate its password with scripts/set-admin-password.mjs via stdin.');
+  process.exit(1);
+}
 if (!['grant', 'revoke'].includes(action) || !address?.trim()) {
   console.error('Usage: node scripts/admin-access.mjs grant|revoke email@example.com');
   process.exit(1);

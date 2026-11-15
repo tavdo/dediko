@@ -8,7 +8,7 @@ self.addEventListener('push', event => {
     body: payload.body || 'შენი პატარა გეგმის დროა. გახსენი Dediko.',
     icon: '/assets/app-icon-192.png', badge: '/assets/app-icon-192.png',
     tag: typeof payload.tag === 'string' ? payload.tag : 'dediko-reminder',
-    data: { url: '/?page=reminders' }
+    data: { url: payload.url === '/?page=offers' ? '/?page=offers' : '/?page=reminders' }
   }));
 });
 self.addEventListener('notificationclick', event => {
@@ -16,7 +16,7 @@ self.addEventListener('notificationclick', event => {
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const existing = windows.find(client => new URL(client.url).origin === self.location.origin);
-    const target = new URL('/?page=reminders', self.location.origin).href;
+    const target = new URL(event.notification.data?.url === '/?page=offers' ? '/?page=offers' : '/?page=reminders', self.location.origin).href;
     if (existing) { await existing.navigate(target); return existing.focus(); }
     return self.clients.openWindow(target);
   })());

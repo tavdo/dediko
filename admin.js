@@ -1,10 +1,11 @@
-import { accountRequest, authCall, setAccountOwner } from './account-client.js';
+import { accountRequest, setAccountOwner } from './account-client.js';
 import { ideaCategories, ideaStatuses } from './ideas.js';
+import { createOffersAdmin } from './offers-admin.js';
 import { lessonCategories } from './lessons.js';
 
 const app = document.querySelector('#admin-app');
 const editor = document.querySelector('#admin-editor');
-const labels = { overview: 'მიმოხილვა', ideas: 'იდეები', lessons: 'ვიდეოგაკვეთილები', community: 'საზოგადოება' };
+const labels = { overview: 'მიმოხილვა', ideas: 'იდეები', lessons: 'ვიდეოგაკვეთილები', community: 'საზოგადოება', offers: 'შეთავაზებები' };
 const stages = { pregnant: 'ორსულებისთვის', mother: 'ახალბედა დედებისთვის' };
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -18,6 +19,7 @@ let loading = false;
 let access = 'checking';
 let requestNumber = 0;
 let notice = '';
+const offersAdmin = createOffersAdmin({app,editor,getData:()=>data,reload:()=>openSection('offers'),setNotice:value=>{notice=value;render();}});
 
 function options(items, value) {
   return items.map(({ id, label }) => `<option value="${escape(id)}"${id === value ? ' selected' : ''}>${escape(label)}</option>`).join('');
@@ -25,7 +27,7 @@ function options(items, value) {
 
 function accessView() {
   const login = `<form id="admin-login">
-    <label>ელფოსტა<input name="email" type="email" autocomplete="username" maxlength="254" required></label>
+    <label>მომხმარებელი<input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" required></label>
     <label>პაროლი<input name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
     <button class="primary" type="submit">შესვლა</button>
   </form>`;
@@ -36,7 +38,7 @@ function accessView() {
     checking: '<p role="status">ანგარიშს ვამოწმებთ…</p>'
   };
   return `<main class="access-card">${brand}<h1>მართვის პანელი</h1>
-    <p>შედი Dediko-ს ადმინის ანგარიშით.</p>
+    <p>შედი მართვის პანელის მომხმარებლით.</p>
     <p class="form-error" role="alert">${escape(errorMessage)}</p>
     ${action[access]}<a class="back-link" href="/">საიტზე დაბრუნება ↗</a>
   </main>`;
@@ -100,7 +102,7 @@ function render() {
   let content;
   if (loading) content = '<p class="admin-panel" role="status">მონაცემები იტვირთება…</p>';
   else if (errorMessage) content = `<div class="admin-panel"><p role="alert">${escape(errorMessage)}</p><button data-action="retry">ხელახლა ცდა</button></div>`;
-  else content = section === 'overview' ? overview() : section === 'community' ? communityList() : contentList();
+  else content = section === 'overview' ? overview() : section === 'community' ? communityList() : section === 'offers' ? `<div id="admin-offers-content">${offersAdmin.view()}</div>` : contentList();
   app.innerHTML = `<div class="admin-shell">
     <aside class="admin-sidebar">${brand}<p>საიტის მართვა</p>
       <nav aria-label="მართვის განყოფილებები">${Object.entries(labels).map(([id, label]) =>
@@ -177,7 +179,7 @@ function openEditor(item) {
 }
 
 editor.addEventListener('change', event => {
-  if (event.target.name === 'stage') {
+  if (event.target.closest('form')?.id === 'admin-edit' && event.target.name === 'stage') {
     editor.querySelector('[name="category"]').innerHTML = options(lessonCategories(event.target.value));
   }
 });
@@ -188,6 +190,7 @@ editor.addEventListener('click', event => {
   if (event.target.closest('[data-action="cancel"]')) editor.close();
 });
 editor.addEventListener('submit', async event => {
+  if (event.target.id !== 'admin-edit') return;
   event.preventDefault();
   const form = event.target;
   const fields = new FormData(form);
@@ -249,8 +252,9 @@ app.addEventListener('click', async event => {
   if (button.dataset.action === 'logout') {
     button.disabled = true;
     try {
-      await authCall('signOut');
-      try { localStorage.setItem('dediko.signed-out', String(Date.now())); } catch { /* Storage is optional. */ }
+      await accountRequest('admin?auth=logout', 'POST', {});
+      try { localStorage.setItem('dediko.admin-signed-out', String(Date.now())); } catch { /* Storage is optional. */ }
+      setAccountOwner(null);
       user = null;
       data = null;
       access = 'login';
@@ -272,7 +276,7 @@ app.addEventListener('submit', async event => {
   const button = event.target.querySelector('button');
   button.disabled = true;
   try {
-    await authCall('signIn.email', values);
+    await accountRequest('admin?auth=login', 'POST', values);
     access = 'checking';
     await openSection('overview');
   } catch (error) {
@@ -281,3 +285,8 @@ app.addEventListener('submit', async event => {
 });
 
 openSection('overview');
+window.addEventListener('storage', event => {
+  if (event.key !== 'dediko.admin-signed-out') return;
+  ++requestNumber; user = null; data = null; access = 'login'; errorMessage = ''; setAccountOwner(null);
+  if (editor.open) editor.close(); render();
+});
